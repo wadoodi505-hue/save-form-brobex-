@@ -1,0 +1,312 @@
+
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+} from 'express';
+import cors from 'cors';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
+
+const app = express();
+const port = Number(process.env.PORT || 8787);
+const clientOrigin =
+  process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+
+app.disable('x-powered-by');
+
+app.use(
+  cors({
+    origin: clientOrigin,
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type'],
+    maxAge: 600,
+  }),
+);
+
+app.use(express.json({ limit: '12kb', strict: true }));
+
+// Small in-memory rate limiter for local and single-instance use.
+const buckets = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
+
+function rateLimit(limit: number, windowMs: number) {
+  return (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) => {
+    const key =
+      req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    let bucket = buckets.get(key);
+
+    if (!bucket || bucket.resetAt <= now) {
+      bucket = {
+        count: 0,
+        resetAt: now + windowMs,
+      };
+      buckets.set(key, bucket);
+    }
+
+    bucket.count++;
+
+    res.setHeader('RateLimit-Limit', String(limit));
+    res.setHeader(
+      'RateLimit-Remaining',
+      String(Math.max(0, limit - bucket.count)),
+    );
+
+    if (bucket.count > limit) {
+      res.setHeader(
+        'Retry-After',
+        String(Math.ceil((bucket.resetAt - now) / 1000)),
+      );
+
+      res.status(429).json({
+        error: 'Too many requests. Please wait a moment and try again.',
+      });
+      return;
+    }
+
+    next();
+  };
+}
+
+setInterval(() => {
+  const now = Date.now();
+
+  for (const [key, bucket] of buckets) {
+    if (bucket.resetAt < now) {
+      buckets.delete(key);
+    }
+  }
+}, 60_000).unref();
+
+const submittedUrlSchema = z
+  .object({
+    url: z.string().trim().min(1).max(2048).url(),
+  })
+  .strict();
+
+// Only explicitly supported hosts are accepted.
+const allowedHosts = new Set([
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'music.youtube.com',
+  'youtu.be',
+]);
+
+function validatePublicUrl(raw: string): URL {
+  let url: URL;
+
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('Enter a valid URL.');
+  }
+
+  if (!['https:', 'http:'].includes(url.protocol)) {
+    throw new Error('Only HTTP and HTTPS links are accepted.');
+  }
+
+  if (url.username || url.password) {
+    throw new Error(
+      'URLs containing embedded credentials are not accepted.',
+    );
+  }
+
+  if (url.port && !['80', '443'].includes(url.port)) {
+    throw new Error('Custom ports are not accepted.');
+  }
+
+  const host = url.hostname.toLowerCase().replace(/\.$/, '');
+
+  if (!allowedHosts.has(host)) {
+    throw new Error(
+      'This source is not supported yet. Please enter a YouTube video link.',
+    );
+  }
+
+  return url;
+}
+
+// Extract a video ID without fetching the submitted URL.
+function getYouTubeVideoId(url: URL): string | null {
+  let id: string | null = null;
+
+  if (url.hostname === 'youtu.be') {
+    id = url.pathname.split('/').filter(Boolean)[0] ?? null;
+  } else if (url.pathname === '/watch') {
+    id = url.searchParams.get('v');
+  } else {
+    const match = url.pathname.match(
+      /^\/(?:embed|shorts|live)\/([A-Za-z0-9_-]{11})\/?$/,
+    );
+
+    id = match?.[1] ?? null;
+  }
+
+  return id && /^[A-Za-z0-9_-]{11}$/.test(id)
+    ? id
+    : null;
+}
+
+// Health check.
+app.get('/api/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'save-from-brobex-api',
+  });
+});
+
+// Resolve supported YouTube links to preview and watch URLs.
+app.post(
+  '/api/media/resolve',
+  rateLimit(20, 60_000),
+  (req, res) => {
+    const parsed = submittedUrlSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: 'Please provide a valid URL under 2,048 characters.',
+      });
+      return;
+    }
+
+    let url: URL;
+
+    try {
+      url = validatePublicUrl(parsed.data.url);
+    } catch (err) {
+      res.status(400).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : 'URL validation failed.',
+      });
+      return;
+    }
+
+    const videoId = getYouTubeVideoId(url);
+
+    if (!videoId) {
+      res.status(400).json({
+        error:
+          'Enter a valid YouTube video, Shorts, or live-stream URL.',
+      });
+      return;
+    }
+
+    res.json({
+      status: 'preview_available',
+      provider: 'youtube',
+      videoId,
+      title: null,
+      embedUrl:
+        `https://www.youtube-nocookie.com/embed/${videoId}`,
+      watchUrl:
+        `https://www.youtube.com/watch?v=${videoId}`,
+      downloadAvailable: false,
+      message:
+        'Your YouTube link is ready to preview. You can watch it on YouTube.',
+    });
+  },
+);
+
+// Contact endpoint. Email delivery requires a configured provider.
+const contactSchema = z
+  .object({
+    name: z.string().trim().min(2).max(100),
+    email: z.string().trim().email().max(254),
+    subject: z.string().trim().min(3).max(150),
+    message: z.string().trim().min(10).max(5000),
+  })
+  .strict();
+
+app.post(
+  '/api/contact',
+  rateLimit(5, 60 * 60_000),
+  (req, res) => {
+    const parsed = contactSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error:
+          'Please check your name, email, subject, and message.',
+      });
+      return;
+    }
+
+    res.status(503).json({
+      error:
+        'Contact delivery is not configured yet. Your message was not sent or stored. Please email brobex.ffx@gmail.com directly.',
+    });
+  },
+);
+
+// Unknown API endpoints.
+app.use('/api', (_req, res) => {
+  res.status(404).json({
+    error: 'API endpoint not found.',
+  });
+});
+
+// Serve the built React app in production.
+if (process.env.NODE_ENV === 'production') {
+  const dirname = path.dirname(fileURLToPath(import.meta.url));
+  const dist = path.resolve(dirname, '../dist');
+
+  app.use(
+    express.static(dist, {
+      index: false,
+      maxAge: '1h',
+    }),
+  );
+
+  app.get('*path', (req, res) => {
+    const known = new Set([
+      '/',
+      '/about',
+      '/blog',
+      '/contact',
+      '/privacy',
+      '/terms',
+    ]);
+
+    const isArticle = /^\/blog\/[a-z0-9-]+$/.test(req.path);
+
+    if (known.has(req.path) || isArticle) {
+      res.sendFile(path.join(dist, 'index.html'));
+      return;
+    }
+
+    res.status(404).sendFile(path.join(dist, 'index.html'));
+  });
+}
+
+// Generic error handler.
+app.use(
+  (
+    err: unknown,
+    _req: Request,
+    res: Response,
+    _next: NextFunction,
+  ) => {
+    console.error('Unhandled request error');
+
+    res.status(500).json({
+      error: 'An unexpected server error occurred.',
+    });
+  },
+);
+
+app.listen(port, () => {
+  console.log(
+    `Save From Brobex API listening on port ${port}`,
+  );
+});

@@ -1,0 +1,632 @@
+import { useState, type FormEvent } from 'react';
+import { motion } from 'framer-motion';
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  Clipboard,
+  Download,
+  FileVideo,
+  Link2,
+  LockKeyhole,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Youtube,
+  Instagram,
+  Music2,
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Seo } from '../components/Seo';
+
+type VideoFormat = {
+  format_id: string;
+  resolution: string;
+  fps?: number;
+  filesize: string;
+};
+
+type VideoData = {
+  title: string;
+  thumbnail: string;
+  duration: string;
+  uploader?: string;
+  formats: VideoFormat[];
+};
+
+const faqs = [
+  [
+    'Can I download any video from any website?',
+    'No. Support depends on the source, its terms, technical access, and whether a permitted integration is available. Direct MP4 downloads are supported when the source allows access. This service does not bypass DRM, login walls, or access restrictions.',
+  ],
+  [
+    'Does submitting a URL guarantee a download?',
+    'No. A URL may point to unsupported, private, unavailable, or non-downloadable content. Direct MP4 links must point to an accessible HTTPS file ending in .mp4.',
+  ],
+  [
+    'Is my submitted link private?',
+    'Links are sent to the application backend for validation. Like most web services, a deployed server may process technical request logs. Avoid submitting private or tokenized URLs.',
+  ],
+  [
+    'Does the website store downloaded videos?',
+    'Direct MP4 files are streamed through the backend to your browser rather than intentionally saved as a permanent server library. Browser or network caching may still occur.',
+  ],
+];
+
+export default function Home() {
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [videoData, setVideoData] = useState<VideoData | null>(null);
+  const [selectedFormat, setSelectedFormat] = useState('');
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+
+    setError('');
+    setNotice('');
+    setVideoData(null);
+
+    const value = url.trim();
+
+    if (!value) {
+      setError('Enter a URL to get started.');
+      return;
+    }
+
+    let parsed: URL;
+
+    try {
+      parsed = new URL(value);
+    } catch {
+      setError(
+        'That link does not look valid. Include the full HTTPS address.',
+      );
+      return;
+    }
+
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      setError('Only HTTP and HTTPS links are accepted.');
+      return;
+    }
+
+    // Handle direct HTTPS MP4 file downloads
+    if (/\.mp4$/i.test(parsed.pathname)) {
+      if (parsed.protocol !== 'https:') {
+        setError('Direct MP4 downloads require an HTTPS URL.');
+        return;
+      }
+
+      window.location.assign(parsed.toString());
+      setNotice('Your MP4 download is starting. Check your browser downloads.');
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const response = await fetch('/api/info', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: value }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch video information.');
+      }
+
+      if (data && data.formats && data.formats.length > 0) {
+        setVideoData(data);
+        setSelectedFormat(data.formats[0].format_id);
+        setNotice('Video preview ready. Select quality and download.');
+      } else {
+        setNotice('No downloadable video streams found for this link.');
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Something went wrong. Please try again.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDownload() {
+    if (!url || !selectedFormat) return;
+
+    setDownloading(true);
+    setNotice('Preparing your download...');
+
+    try {
+      const response = await fetch('/api/download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url, formatId: selectedFormat }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Download processing failed.');
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `${videoData?.title?.replace(/[^a-zA-Z0-9]/g, '_') || 'video'}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      setNotice('Download complete!');
+    } catch (err) {
+      setError('Failed to download the video. Please try another format.');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function paste() {
+    try {
+      const text = await navigator.clipboard.readText();
+
+      setUrl(text);
+      setError('');
+      setNotice('');
+      setVideoData(null);
+    } catch {
+      setError(
+        'Clipboard access was blocked. Paste your link into the field instead.',
+      );
+    }
+  }
+
+  function clearUrl() {
+    setUrl('');
+    setError('');
+    setNotice('');
+    setVideoData(null);
+  }
+
+  return (
+    <>
+      <Seo
+        title="Save From Brobex — Your Media. Your Choice."
+        description="Preview supported media and download accessible direct MP4 files with Save From Brobex."
+      />
+
+      <section className="hero">
+        <div className="hero-orb orb-one" />
+        <div className="hero-orb orb-two" />
+
+        <div className="hero-content">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="eyebrow"
+          >
+            <span className="pulse-dot" />
+            SIMPLE BY DESIGN
+            <span className="eyebrow-line" />
+            RESPONSIBLE BY DEFAULT
+          </motion.div>
+
+          <motion.h1
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.65, delay: 0.08 }}
+          >
+            Save From <span>Brobex</span>
+          </motion.h1>
+
+          <motion.p
+            className="hero-sub"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.15 }}
+          >
+            Your Media. Your Choice. <em>Made Simple.</em>
+          </motion.p>
+
+          <p className="hero-copy">
+            Preview supported media or download accessible MP4 videos in your preferred quality.
+            Paste a link to get started.
+          </p>
+
+          <motion.form
+            className="url-form glass"
+            onSubmit={submit}
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.22 }}
+          >
+            <div className="url-field-icon">
+              <Link2 size={20} />
+            </div>
+
+            <label className="sr-only" htmlFor="media-url">
+              Enter your media URL
+            </label>
+
+            <input
+              id="media-url"
+              type="url"
+              inputMode="url"
+              autoComplete="url"
+              placeholder="Paste a YouTube link or direct HTTPS MP4 URL"
+              value={url}
+              onChange={(event) => {
+                setUrl(event.target.value);
+                setError('');
+                setNotice('');
+                setVideoData(null);
+              }}
+              aria-describedby="url-feedback"
+            />
+
+            <button
+              type="button"
+              className="icon-action paste-btn"
+              onClick={paste}
+              aria-label="Paste URL from clipboard"
+            >
+              <Clipboard size={17} />
+              <span>Paste</span>
+            </button>
+
+            {url && (
+              <button
+                type="button"
+                className="icon-action clear-btn"
+                onClick={clearUrl}
+                aria-label="Clear URL"
+              >
+                <Trash2 size={17} />
+              </button>
+            )}
+
+            <button className="submit-btn" type="submit" disabled={busy}>
+              {busy ? (
+                <span className="spinner" />
+              ) : (
+                <Download size={18} />
+              )}
+              <span>{busy ? 'Fetching...' : 'Get Media'}</span>
+              <ArrowRight size={16} />
+            </button>
+          </motion.form>
+
+          <div
+            id="url-feedback"
+            className={`form-feedback ${error ? 'is-error' : ''} ${
+              notice ? 'is-notice' : ''
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {error || notice}
+          </div>
+
+          {videoData && (
+            <motion.section
+              className="media-result glass"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35 }}
+              aria-label="Video preview and download"
+            >
+              <div className="media-result-heading">
+                <div>
+                  <div className="section-kicker">READY TO DOWNLOAD</div>
+                  <h2>{videoData.title}</h2>
+                  <p>Duration: {videoData.duration} {videoData.uploader ? `• By ${videoData.uploader}` : ''}</p>
+                </div>
+
+                <span className="source-icon">
+                  <Youtube />
+                </span>
+              </div>
+
+              {videoData.thumbnail && (
+                <div className="my-4 overflow-hidden rounded-xl border border-slate-700">
+                  <img
+                    src={videoData.thumbnail}
+                    alt={videoData.title}
+                    className="w-full h-64 object-cover"
+                  />
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3 my-4">
+                <label className="text-sm font-medium text-slate-300">Select Video Quality:</label>
+                <select
+                  value={selectedFormat}
+                  onChange={(e) => setSelectedFormat(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  {videoData.formats.map((f, idx) => (
+                    <option key={idx} value={f.format_id}>
+                      {f.resolution} {f.fps ? `(${f.fps}fps)` : ''} — {f.filesize}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="media-result-actions mt-4 flex items-center justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className="gold-btn flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold cursor-pointer"
+                >
+                  {downloading ? <span className="spinner" /> : <Download size={18} />}
+                  <span>{downloading ? 'Downloading MP4...' : 'Download MP4'}</span>
+                </button>
+              </div>
+            </motion.section>
+          )}
+
+          <div className="trust-row">
+            <span>
+              <ShieldCheck size={15} /> Link validation
+            </span>
+            <span>
+              <LockKeyhole size={15} /> Safety-minded design
+            </span>
+            <span>
+              <Check size={15} /> No fabricated results
+            </span>
+          </div>
+
+          <p className="hero-disclaimer">
+            Only access media you have permission to use. Availability depends
+            on source support, URL accessibility, and platform rules.
+          </p>
+        </div>
+
+        <div className="hero-bottom">
+          <span>BUILT FOR CLARITY</span>
+          <span className="hero-bottom-line" />
+          <span>01 — 04</span>
+        </div>
+      </section>
+
+      <section className="supported section-wrap">
+        <div className="section-kicker">SOURCE COMPATIBILITY</div>
+
+        <div className="supported-row">
+          <div>
+            <span className="source-icon">
+              <Youtube />
+            </span>
+            <span>
+              <b>YouTube</b>
+              <small>Preview & Download</small>
+            </span>
+          </div>
+
+          <div>
+            <span className="source-icon">
+              <Instagram />
+            </span>
+            <span>
+              <b>Instagram</b>
+              <small>Provider required</small>
+            </span>
+          </div>
+
+          <div>
+            <span className="source-icon">
+              <Music2 />
+            </span>
+            <span>
+              <b>TikTok</b>
+              <small>Provider required</small>
+            </span>
+          </div>
+
+          <div>
+            <span className="source-icon">
+              <FileVideo />
+            </span>
+            <span>
+              <b>Direct MP4</b>
+              <small>HTTPS file downloads</small>
+            </span>
+          </div>
+
+          <p>
+            YouTube previews and format selection link directly to server-side yt-dlp processing. Direct HTTPS
+            MP4 file URLs can be downloaded when the source permits access.
+          </p>
+        </div>
+      </section>
+
+      <section id="how-it-works" className="section-wrap how-section">
+        <div className="section-heading">
+          <div>
+            <div className="section-kicker">A BETTER WAY TO BEGIN</div>
+            <h2>
+              Three steps. <span>No guesswork.</span>
+            </h2>
+          </div>
+
+          <p>
+            Clear feedback at every step, so you know what the service can—and
+            cannot—do.
+          </p>
+        </div>
+
+        <div className="steps-grid">
+          <article className="step-card">
+            <span className="step-number">01 / INPUT</span>
+            <div className="step-icon">
+              <Link2 />
+            </div>
+            <h3>Paste your link</h3>
+            <p>
+              Start with a public URL from a source you are authorized to
+              access. Direct MP4 downloads require an HTTPS file URL.
+            </p>
+            <span className="step-arrow">
+              <ArrowRight />
+            </span>
+          </article>
+
+          <article className="step-card">
+            <span className="step-number">02 / CHECK</span>
+            <div className="step-icon">
+              <ShieldCheck />
+            </div>
+            <h3>Validate the source</h3>
+            <p>
+              The server checks the URL and reports available qualities and formats for download.
+            </p>
+            <span className="step-arrow">
+              <ArrowRight />
+            </span>
+          </article>
+
+          <article className="step-card">
+            <span className="step-number">03 / RESULT</span>
+            <div className="step-icon">
+              <FileVideo />
+            </div>
+            <h3>Download your video</h3>
+            <p>
+              Choose your preferred resolution and download your MP4 file securely.
+            </p>
+            <span className="step-arrow">
+              <ArrowRight />
+            </span>
+          </article>
+        </div>
+      </section>
+
+      <section className="feature-band">
+        <div className="feature-inner">
+          <div>
+            <div className="section-kicker">THE BROBEX STANDARD</div>
+            <h2>
+              Useful by nature.
+              <br />
+              <span>Responsible by design.</span>
+            </h2>
+            <p>
+              Tools should be easy to understand, honest about their limits,
+              and built to respect the people who create the content we enjoy.
+            </p>
+            <Link className="text-link" to="/about">
+              Discover our approach <ArrowUpRight size={17} />
+            </Link>
+          </div>
+
+          <div className="feature-list">
+            <div>
+              <span>
+                <Sparkles />
+              </span>
+              <div>
+                <h3>Clarity over clutter</h3>
+                <p>
+                  A focused interface with helpful states instead of confusing
+                  buttons.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <span>
+                <ShieldCheck />
+              </span>
+              <div>
+                <h3>Safety at every step</h3>
+                <p>
+                  Server-side validation and safeguards against unsafe URL
+                  requests.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <span>
+                <LockKeyhole />
+              </span>
+              <div>
+                <h3>Privacy-aware choices</h3>
+                <p>
+                  Minimal collection by design, with transparent service
+                  limitations.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="faq-section section-wrap">
+        <div className="section-heading">
+          <div>
+            <div className="section-kicker">GOOD TO KNOW</div>
+            <h2>
+              Questions, <span>answered.</span>
+            </h2>
+          </div>
+
+          <Link className="text-link" to="/contact">
+            Still curious? Contact us <ArrowUpRight size={16} />
+          </Link>
+        </div>
+
+        <div className="faq-list">
+          {faqs.map(([question, answer]) => (
+            <details key={question} className="faq-item">
+              <summary>
+                {question}
+                <ChevronDown size={18} />
+              </summary>
+              <p>{answer}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
+      <section className="contact-cta">
+        <div className="cta-glow" />
+        <div className="section-kicker">HAVE A PROJECT IN MIND?</div>
+        <h2>
+          Good websites start
+          <br />
+          with a <span>conversation.</span>
+        </h2>
+        <p>
+          Need a polished digital experience for your business? Let’s talk
+          about what you want to build.
+        </p>
+        <Link to="/contact" className="gold-btn">
+          Talk to Brobex <ArrowUpRight size={17} />
+        </Link>
+        <a
+          href="https://brobexportfolio.vercel.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="cta-secondary"
+        >
+          Explore developer portfolio ↗
+        </a>
+      </section>
+    </>
+  );
+}
