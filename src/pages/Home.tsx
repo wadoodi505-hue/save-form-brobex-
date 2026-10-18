@@ -81,7 +81,7 @@ export default function Home() {
       return;
     }
 
-    // Direct HTTPS MP4 link handler
+    // Direct HTTPS MP4 file downloads
     if (/\.mp4$/i.test(value)) {
       if (!value.startsWith('https://')) {
         setError('Direct MP4 downloads require an HTTPS URL.');
@@ -92,7 +92,7 @@ export default function Home() {
       return;
     }
 
-    // Extract YouTube Video ID from standard or Shorts links
+    // Extract YouTube Video ID
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]*).*/;
     const match = value.match(regExp);
     const videoId = match && match[2].length === 11 ? match[2] : null;
@@ -106,7 +106,7 @@ export default function Home() {
     setNotice('Fetching video preview...');
 
     try {
-      // Official YouTube oEmbed API - 100% client-side, zero backend needed, no JSON crashes
+      // Official YouTube oEmbed API for instant metadata extraction
       const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
       const response = await fetch(oembedUrl);
 
@@ -145,52 +145,52 @@ export default function Home() {
   }
 
   async function handleDownload() {
-    if (!videoData) return;
+    if (!videoData || !videoData.videoId) return;
 
     setDownloading(true);
-    setNotice(`Generating ${selectedFormat}p direct download stream...`);
+    setNotice(`Extracting direct stream for ${selectedFormat}p download...`);
     setError('');
 
-    const cobaltEndpoints = [
-      'https://api.cobalt.tools/api/json',
-      'https://cobalt.projectsegfau.lt/api/json',
-      'https://co.wuk.sh/api/json'
+    // Public CORS-friendly Piped API instances for video stream extraction
+    const pipedInstances = [
+      `https://pipedapi.kavin.rocks/streams/${videoData.videoId}`,
+      `https://pipedapi.rhea.dev/streams/${videoData.videoId}`,
+      `https://pipedapi.privacy.com.de/streams/${videoData.videoId}`
     ];
 
     let downloadUrl = '';
 
-    for (const endpoint of cobaltEndpoints) {
+    for (const endpoint of pipedInstances) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            url: videoData.originalUrl,
-            videoQuality: selectedFormat
-          }),
-          signal: controller.signal
-        });
+        const res = await fetch(endpoint, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (!res.ok) continue;
 
         const data = await res.json();
-        if (data.status === 'redirect' || data.status === 'tunnel') {
-          downloadUrl = data.url;
-          break;
-        } else if (data.status === 'picker' && data.picker && data.picker.length > 0) {
-          downloadUrl = data.picker[0].url;
-          break;
-        } else if (data.url) {
-          downloadUrl = data.url;
-          break;
+        const videoStreams = data.videoStreams || [];
+
+        // Find direct MP4 stream containing audio & video
+        for (const stream of videoStreams) {
+          if (stream.url && stream.videoOnly === false && stream.mimeType?.includes('mp4')) {
+            downloadUrl = stream.url;
+            break;
+          }
         }
+
+        if (!downloadUrl) {
+          for (const stream of videoStreams) {
+            if (stream.url && stream.videoOnly === false) {
+              downloadUrl = stream.url;
+              break;
+            }
+          }
+        }
+
+        if (downloadUrl) break;
       } catch {
         continue;
       }
@@ -198,14 +198,15 @@ export default function Home() {
 
     if (!downloadUrl) {
       setDownloading(false);
-      setError('Extraction service temporarily busy. Please try again in a moment.');
+      setError('Unable to extract direct MP4 stream at this moment. Please try again in a few seconds.');
       setNotice('');
       return;
     }
 
     try {
-      setNotice('Initializing file download to your device...');
+      setNotice('Downloading MP4 file directly to your device...');
 
+      // Trigger direct native device download
       const a = document.createElement('a');
       a.href = downloadUrl;
       a.target = '_blank';
@@ -216,8 +217,8 @@ export default function Home() {
       a.remove();
 
       setNotice('Download started successfully on your device!');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Download failed. Please try again.');
+    } catch {
+      setError('Could not initialize direct file download.');
       setNotice('');
     } finally {
       setDownloading(false);
