@@ -1,7 +1,7 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import urllib.parse
-import yt_dlp
+import traceback
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -17,7 +17,6 @@ class handler(BaseHTTPRequestHandler):
             body = self.rfile.read(content_length).decode('utf-8') if content_length > 0 else '{}'
             data = json.loads(body) if body else {}
 
-            # Parse query parameters as fallback
             parsed_path = urllib.parse.urlparse(self.path)
             query_params = urllib.parse.parse_qs(parsed_path.query)
 
@@ -31,8 +30,10 @@ class handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({'error': 'No URL provided'}).encode('utf-8'))
                 return
 
-            # Extract info using yt-dlp
+            # Import yt_dlp safely inside the function
+            import yt_dlp
             ydl_opts = {'quiet': True, 'skip_download': True}
+            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 
@@ -59,8 +60,11 @@ class handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(response_data).encode('utf-8'))
 
         except Exception as e:
+            error_trace = traceback.format_exc()
+            print("CRASH TRACEBACK:", error_trace)
+            
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            self.wfile.write(json.dumps({'error': str(e), 'trace': error_trace}).encode('utf-8'))
