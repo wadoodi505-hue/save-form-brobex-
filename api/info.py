@@ -16,6 +16,13 @@ def extract_youtube_id(url):
     return None
 
 class handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+
     def do_POST(self):
         self.handle_request()
 
@@ -44,7 +51,7 @@ class handler(BaseHTTPRequestHandler):
             video_id = extract_youtube_id(video_url)
             video_info = None
 
-            # 1. Try Piped API to fetch metadata safely without direct YouTube blocks
+            # Attempt extraction via Piped public API relay
             if video_id:
                 piped_instances = [
                     f"https://pipedapi.kavin.rocks/streams/{video_id}",
@@ -53,20 +60,20 @@ class handler(BaseHTTPRequestHandler):
                 for p_url in piped_instances:
                     try:
                         req = urllib.request.Request(p_url, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(req, timeout=5) as response:
-                            data = json.loads(response.read().decode('utf-8'))
+                        with urllib.request.urlopen(req, timeout=4) as response:
+                            res_data = json.loads(response.read().decode('utf-8'))
                             video_info = {
-                                "title": data.get("title", "YouTube Video"),
-                                "thumbnail": data.get("thumbnailUrl", ""),
-                                "duration": str(data.get("duration", "Unknown")),
-                                "uploader": data.get("uploader", "Unknown"),
+                                "title": res_data.get("title", "YouTube Video"),
+                                "thumbnail": res_data.get("thumbnailUrl", f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"),
+                                "duration": str(res_data.get("duration", "Unknown")),
+                                "uploader": res_data.get("uploader", "YouTube"),
                                 "formats": [{"format_id": "default", "ext": "mp4", "resolution": "720p"}]
                             }
                             break
                     except Exception:
                         continue
 
-            # 2. Fallback basic response if relays take too long
+            # Fail-safe metadata construction
             if not video_info:
                 video_info = {
                     "title": "YouTube Video",
