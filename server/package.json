@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:client\" \"npm:dev:server\"",
     "dev:client": "vite",
-    "dev:server": "tsx watch server/index.ts",
+    "dev:server": "tsx watch index.ts",
     "build": "tsc -b && vite build",
-    "start": "tsx server/index.ts",
+    "start": "tsx index.ts",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty"
   },
