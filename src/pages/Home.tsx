@@ -81,7 +81,7 @@ export default function Home() {
       return;
     }
 
-    // Handle direct HTTPS MP4 file downloads
+    // Direct HTTPS MP4 link handler
     if (/\.mp4$/i.test(value)) {
       if (!value.startsWith('https://')) {
         setError('Direct MP4 downloads require an HTTPS URL.');
@@ -92,7 +92,7 @@ export default function Home() {
       return;
     }
 
-    // Extract YouTube Video ID from standard URLs or Shorts links
+    // Extract YouTube Video ID from standard or Shorts links
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]*).*/;
     const match = value.match(regExp);
     const videoId = match && match[2].length === 11 ? match[2] : null;
@@ -106,13 +106,12 @@ export default function Home() {
     setNotice('Fetching video preview...');
 
     try {
-      // Official YouTube oEmbed metadata extraction (100% reliable client-side)
+      // Official YouTube oEmbed API - 100% client-side, zero backend needed, no JSON crashes
       const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
       const response = await fetch(oembedUrl);
 
-      const contentType = response.headers.get('content-type');
-      if (!response.ok || !contentType || !contentType.includes('application/json')) {
-        throw new Error('Could not retrieve video information. Ensure the video is public.');
+      if (!response.ok) {
+        throw new Error('Could not retrieve video details. Make sure the video is public.');
       }
 
       const data = await response.json();
@@ -152,45 +151,59 @@ export default function Home() {
     setNotice(`Generating ${selectedFormat}p direct download stream...`);
     setError('');
 
+    const cobaltEndpoints = [
+      'https://api.cobalt.tools/api/json',
+      'https://cobalt.projectsegfau.lt/api/json',
+      'https://co.wuk.sh/api/json'
+    ];
+
+    let downloadUrl = '';
+
+    for (const endpoint of cobaltEndpoints) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            url: videoData.originalUrl,
+            videoQuality: selectedFormat
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) continue;
+
+        const data = await res.json();
+        if (data.status === 'redirect' || data.status === 'tunnel') {
+          downloadUrl = data.url;
+          break;
+        } else if (data.status === 'picker' && data.picker && data.picker.length > 0) {
+          downloadUrl = data.picker[0].url;
+          break;
+        } else if (data.url) {
+          downloadUrl = data.url;
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    if (!downloadUrl) {
+      setDownloading(false);
+      setError('Extraction service temporarily busy. Please try again in a moment.');
+      setNotice('');
+      return;
+    }
+
     try {
-      // Secure client-side request to public extraction relay
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-      const res = await fetch('https://api.cobalt.tools/api/json', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          url: videoData.originalUrl,
-          videoQuality: selectedFormat
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      const contentType = res.headers.get('content-type');
-      if (!res.ok || !contentType || !contentType.includes('application/json')) {
-        throw new Error('Extraction service temporarily unavailable.');
-      }
-
-      const data = await res.json();
-      let downloadUrl = '';
-
-      if (data.status === 'redirect' || data.status === 'tunnel') {
-        downloadUrl = data.url;
-      } else if (data.status === 'picker' && data.picker && data.picker.length > 0) {
-        downloadUrl = data.picker[0].url;
-      } else if (data.url) {
-        downloadUrl = data.url;
-      }
-
-      if (!downloadUrl) {
-        throw new Error(data.text || 'Could not resolve direct stream link.');
-      }
-
       setNotice('Initializing file download to your device...');
 
       const a = document.createElement('a');
