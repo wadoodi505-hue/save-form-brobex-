@@ -19,7 +19,7 @@ class handler(BaseHTTPRequestHandler):
             return
 
         try:
-            # Send request to public extraction relay to bypass Vercel datacenter IP blocks
+            # Professional API relay request (bypasses Vercel IP blocks & bot checks instantly)
             payload = json.dumps({
                 'url': video_url,
                 'videoQuality': '720'
@@ -41,6 +41,7 @@ class handler(BaseHTTPRequestHandler):
 
             status = result.get('status')
             download_url = None
+            title = result.get('filename', 'YouTube Video')
 
             if status in ['tunnel', 'redirect']:
                 download_url = result.get('url')
@@ -50,11 +51,11 @@ class handler(BaseHTTPRequestHandler):
                     download_url = picker_items[0].get('url')
             
             if not download_url:
-                raise Exception(result.get('text', 'Could not extract direct stream URL.'))
+                raise Exception(result.get('text', 'Could not generate direct stream URL.'))
 
             response_data = {
                 'success': True,
-                'title': 'YouTube Media',
+                'title': title,
                 'duration': 'Ready',
                 'uploader': 'YouTube',
                 'download_url': download_url,
