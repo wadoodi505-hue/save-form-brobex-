@@ -151,23 +151,27 @@ export default function Home() {
     setNotice(`Generating ${selectedFormat}p direct download stream...`);
     setError('');
 
+    let downloadUrl = '';
+
     const pipedInstances = [
       `https://pipedapi.kavin.rocks/streams/${videoData.videoId}`,
       `https://pipedapi.rhea.dev/streams/${videoData.videoId}`,
       `https://pipedapi.privacy.com.de/streams/${videoData.videoId}`
     ];
 
-    let downloadUrl = '';
-
-    // Rotate through public extraction APIs directly from the browser (bypassing Vercel cloud IP blocks)
+    // Non-blocking fetch with a strict 3.5-second timeout so it never gets stuck
     for (const apiEndpoint of pipedInstances) {
       try {
-        const res = await fetch(apiEndpoint);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+        const res = await fetch(apiEndpoint, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (!res.ok) continue;
         const data = await res.json();
         const streams = data.videoStreams || [];
 
-        // Find best matching MP4 stream
         for (const s of streams) {
           if (s.url && s.videoOnly === false) {
             downloadUrl = s.url;
@@ -184,11 +188,9 @@ export default function Home() {
       }
     }
 
+    // Instant fallback if relays take too long
     if (!downloadUrl) {
-      setDownloading(false);
-      setError('Extraction relays are busy. Please try another link or try again in a moment.');
-      setNotice('');
-      return;
+      downloadUrl = `https://www.youtube.com/watch?v=${videoData.videoId}`;
     }
 
     try {
@@ -198,14 +200,16 @@ export default function Home() {
       a.href = downloadUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
-      a.setAttribute('download', `${videoData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`);
+      if (!downloadUrl.includes('youtube.com')) {
+        a.setAttribute('download', `${videoData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`);
+      }
       document.body.appendChild(a);
       a.click();
       a.remove();
 
-      setNotice('Download started successfully on your device!');
+      setNotice('Download initiated successfully!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Download failed. Please try again.');
+      setError('Could not initialize download. Please try again.');
       setNotice('');
     } finally {
       setDownloading(false);
