@@ -151,46 +151,56 @@ export default function Home() {
     setNotice(`Generating ${selectedFormat}p direct download stream...`);
     setError('');
 
-    let downloadUrl = '';
-
-    const pipedInstances = [
-      `https://pipedapi.kavin.rocks/streams/${videoData.videoId}`,
-      `https://pipedapi.rhea.dev/streams/${videoData.videoId}`,
-      `https://pipedapi.privacy.com.de/streams/${videoData.videoId}`
+    const cobaltInstances = [
+      'https://api.cobalt.tools/api/json',
+      'https://cobalt.projectsegfau.lt/api/json',
+      'https://co.wuk.sh/api/json'
     ];
 
-    // Non-blocking fetch with a strict 3.5-second timeout so it never gets stuck
-    for (const apiEndpoint of pipedInstances) {
+    let downloadUrl = '';
+
+    for (const api of cobaltInstances) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-        const res = await fetch(apiEndpoint, { signal: controller.signal });
+        const res = await fetch(api, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            url: videoData.originalUrl,
+            videoQuality: selectedFormat
+          }),
+          signal: controller.signal
+        });
         clearTimeout(timeoutId);
 
         if (!res.ok) continue;
         const data = await res.json();
-        const streams = data.videoStreams || [];
 
-        for (const s of streams) {
-          if (s.url && s.videoOnly === false) {
-            downloadUrl = s.url;
-            break;
-          }
+        if (data.status === 'redirect' || data.status === 'tunnel') {
+          downloadUrl = data.url;
+          break;
+        } else if (data.status === 'picker' && data.picker && data.picker.length > 0) {
+          downloadUrl = data.picker[0].url;
+          break;
+        } else if (data.url) {
+          downloadUrl = data.url;
+          break;
         }
-        if (!downloadUrl && streams.length > 0) {
-          downloadUrl = streams[0].url;
-        }
-
-        if (downloadUrl) break;
       } catch {
         continue;
       }
     }
 
-    // Instant fallback if relays take too long
     if (!downloadUrl) {
-      downloadUrl = `https://www.youtube.com/watch?v=${videoData.videoId}`;
+      setDownloading(false);
+      setError('Could not generate direct download link. Please try again in a moment.');
+      setNotice('');
+      return;
     }
 
     try {
@@ -200,14 +210,12 @@ export default function Home() {
       a.href = downloadUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
-      if (!downloadUrl.includes('youtube.com')) {
-        a.setAttribute('download', `${videoData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`);
-      }
+      a.setAttribute('download', `${videoData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`);
       document.body.appendChild(a);
       a.click();
       a.remove();
 
-      setNotice('Download initiated successfully!');
+      setNotice('Download started successfully on your device!');
     } catch (err) {
       setError('Could not initialize download. Please try again.');
       setNotice('');
