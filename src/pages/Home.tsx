@@ -122,14 +122,15 @@ export default function Home() {
         uploader: data.author_name || 'YouTube Creator',
         videoId: videoId,
         formats: [
-          { format_id: '1080', resolution: '1080p Full HD (MP4)', filesize: 'High Speed' },
+          { format_id: '1080', resolution: '1080p Full HD (MP4)', filesize: 'High Quality' },
           { format_id: '720', resolution: '720p HD (MP4)', filesize: 'Optimal' },
+          { format_id: '480', resolution: '480p SD (MP4)', filesize: 'Standard' },
           { format_id: '360', resolution: '360p SD (MP4)', filesize: 'Fast Download' }
         ]
       });
 
       setSelectedFormat('1080');
-      setNotice('Video preview ready! Play or stream directly on Brobex.');
+      setNotice('Video preview ready! Choose your quality and download.');
     } catch (err) {
       setError(
         err instanceof Error
@@ -142,17 +143,53 @@ export default function Home() {
   }
 
   async function handleDownload() {
-    if (!videoData || !videoData.videoId) return;
+    if (!url.trim()) return;
 
     setDownloading(true);
-    setNotice(`Loading ${selectedFormat}p stream on Brobex...`);
+    setNotice(`Generating ${selectedFormat}p download link on Brobex...`);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      setIsPlaying(true);
-      setNotice('Now playing and streaming directly on Save From Brobex!');
+      // Call public extraction relay directly from client to fetch direct stream file
+      const response = await fetch('https://api.cobalt.tools/api/json', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: url.trim(),
+          videoQuality: selectedFormat,
+        }),
+      });
+
+      const data = await response.json();
+
+      let downloadUrl = '';
+      if (data.status === 'redirect' || data.status === 'tunnel') {
+        downloadUrl = data.url;
+      } else if (data.status === 'picker' && data.picker && data.picker.length > 0) {
+        downloadUrl = data.picker[0].url;
+      }
+
+      if (!downloadUrl) {
+        throw new Error(data.text || 'Could not generate direct download stream.');
+      }
+
+      setNotice('Initializing file download...');
+
+      // Trigger native browser download directly on user's device
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.setAttribute('download', 'video.mp4');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setNotice('Download started successfully on your device!');
     } catch (err) {
-      setError('Could not initialize video stream.');
+      setError(err instanceof Error ? err.message : 'Download failed. Please try another video link.');
     } finally {
       setDownloading(false);
     }
@@ -183,7 +220,7 @@ export default function Home() {
     <>
       <Seo
         title="Save From Brobex — Your Media. Your Choice."
-        description="Preview supported media and stream or download accessible MP4 files directly with Save From Brobex."
+        description="Preview supported media and download accessible MP4 files directly with Save From Brobex."
       />
 
       <section className="hero">
@@ -221,7 +258,7 @@ export default function Home() {
           </motion.p>
 
           <p className="hero-copy">
-            Preview supported media or stream accessible MP4 videos in your preferred quality.
+            Preview supported media or download accessible MP4 videos in your preferred quality.
             Paste a link to get started.
           </p>
 
@@ -306,7 +343,7 @@ export default function Home() {
             >
               <div className="media-result-heading">
                 <div>
-                  <div className="section-kicker">READY TO STREAM</div>
+                  <div className="section-kicker">READY TO DOWNLOAD</div>
                   <h2>{videoData.title}</h2>
                   <p>Quality: {videoData.duration} {videoData.uploader ? `• By ${videoData.uploader}` : ''}</p>
                 </div>
@@ -329,7 +366,7 @@ export default function Home() {
                       />
                     </div>
                   ) : (
-                    <div className="relative group cursor-pointer" onClick={handleDownload}>
+                    <div className="relative group cursor-pointer" onClick={() => setIsPlaying(true)}>
                       <img
                         src={videoData.thumbnail}
                         alt={videoData.title}
@@ -367,8 +404,8 @@ export default function Home() {
                   disabled={downloading}
                   className="gold-btn flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold cursor-pointer"
                 >
-                  {downloading ? <span className="spinner" /> : <Play size={18} />}
-                  <span>{downloading ? 'Loading Stream...' : 'Play & Stream on Brobex'}</span>
+                  {downloading ? <span className="spinner" /> : <Download size={18} />}
+                  <span>{downloading ? `Preparing ${selectedFormat}p MP4...` : `Download ${selectedFormat}p MP4`}</span>
                 </button>
               </div>
             </motion.section>
@@ -409,7 +446,7 @@ export default function Home() {
             </span>
             <span>
               <b>YouTube</b>
-              <small>Preview & Stream</small>
+              <small>Preview & Download</small>
             </span>
           </div>
 
@@ -444,7 +481,7 @@ export default function Home() {
           </div>
 
           <p>
-            YouTube previews and stream playback are integrated directly into Save From Brobex with zero external site redirects.
+            YouTube quality selection and device file downloads are fully integrated directly on Save From Brobex.
           </p>
         </div>
       </section>
@@ -499,9 +536,9 @@ export default function Home() {
             <div className="step-icon">
               <FileVideo />
             </div>
-            <h3>Stream your video</h3>
+            <h3>Download your video</h3>
             <p>
-              Enjoy your media directly on Save From Brobex without unnecessary redirects.
+              Select your quality and save your MP4 directly to your device with Save From Brobex.
             </p>
             <span className="step-arrow">
               <ArrowRight />
