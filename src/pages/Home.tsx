@@ -650,9 +650,3 @@ export default function Home() {
     </>
   );
 }
-
-
-
-
-
-
