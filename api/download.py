@@ -3,6 +3,7 @@ import json
 import urllib.parse
 import yt_dlp
 import os
+import shutil
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -20,18 +21,27 @@ class handler(BaseHTTPRequestHandler):
             return
 
         try:
-            # Locate cookies.txt inside the server folder
-            cookie_path = os.path.join(os.getcwd(), 'server', 'cookies.txt')
+            # Source path inside the Vercel read-only bundle
+            source_cookie_path = os.path.join(os.getcwd(), 'server', 'cookies.txt')
+            # Destination path inside Vercel's writable /tmp folder
+            tmp_cookie_path = '/tmp/cookies.txt'
 
             ydl_opts = {
-                'format': 'best[ext=mp4]/best',
+                'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
                 'quiet': True,
                 'no_warnings': True,
+                # Rotate player clients to avoid bot detection
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['ios', 'mweb', 'android', 'web']
+                    }
+                }
             }
 
-            # If cookies.txt exists, attach it to yt-dlp to bypass bot detection
-            if os.path.exists(cookie_path):
-                ydl_opts['cookiefile'] = cookie_path
+            # Copy cookies file to /tmp so yt-dlp can safely read & modify it
+            if os.path.exists(source_cookie_path):
+                shutil.copyfile(source_cookie_path, tmp_cookie_path)
+                ydl_opts['cookiefile'] = tmp_cookie_path
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
@@ -42,7 +52,6 @@ class handler(BaseHTTPRequestHandler):
                 duration_sec = info.get('duration', 0)
                 uploader = info.get('uploader', '')
 
-                # Format duration
                 if duration_sec:
                     m, s = divmod(int(duration_sec), 60)
                     h, m = divmod(m, 60)
@@ -54,12 +63,16 @@ class handler(BaseHTTPRequestHandler):
                 if 'formats' in info:
                     for f in info['formats']:
                         if f.get('url') and (f.get('ext') == 'mp4' or f.get('vcodec') != 'none'):
-                            height = f.get('height') or 'SD'
+                            height = f.get('height') or f.get('format_note') or 'SD'
                             res_label = f"{height}p" if str(height).isdigit() else str(height)
+                            filesize_bytes = f.get('filesize') or f.get('filesize_approx')
+                            filesize_str = f"{round(filesize_bytes / (1024 * 1024), 1)} MB" if filesize_bytes else "Direct Link"
+
                             formats_list.append({
                                 'format_id': f.get('format_id', 'best'),
                                 'resolution': res_label,
-                                'filesize': 'HD Stream',
+                                'fps': f.get('fps'),
+                                'filesize': filesize_str,
                                 'download_url': f.get('url')
                             })
 
@@ -81,6 +94,7 @@ class handler(BaseHTTPRequestHandler):
                 'formats': formats_list if formats_list else [{
                     'format_id': 'best',
                     'resolution': 'HD (MP4)',
+                    'filesize': 'Direct Stream',
                     'download_url': direct_url
                 }]
             }
