@@ -1,7 +1,7 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import urllib.parse
-import yt_dlp
+import urllib.request
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -19,62 +19,50 @@ class handler(BaseHTTPRequestHandler):
             return
 
         try:
-            # yt-dlp configured for single-file progressive streams (No ffmpeg needed)
-            ydl_opts = {
-                'format': '18/best[ext=mp4]/best',
-                'quiet': True,
-                'no_warnings': True,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android', 'web']
-                    }
-                }
-            }
+            # Send request to public extraction relay to bypass Vercel datacenter IP blocks
+            payload = json.dumps({
+                'url': video_url,
+                'videoQuality': '720'
+            }).encode('utf-8')
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(video_url, download=False)
-                
-                direct_url = info.get('url')
-                title = info.get('title', 'YouTube Video')
-                thumbnail = info.get('thumbnail', '')
-                duration_sec = info.get('duration', 0)
-                uploader = info.get('uploader', 'YouTube')
+            req = urllib.request.Request(
+                'https://api.cobalt.tools/api/json',
+                data=payload,
+                headers={
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                },
+                method='POST'
+            )
 
-                # Format duration cleanly
-                if duration_sec:
-                    m, s = divmod(int(duration_sec), 60)
-                    h, m = divmod(m, 60)
-                    duration_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
-                else:
-                    duration_str = "Available"
+            with urllib.request.urlopen(req) as response:
+                result = json.loads(response.read().decode('utf-8'))
 
-                # Fallback format search if direct_url is missing
-                if not direct_url and 'formats' in info:
-                    for f in info['formats']:
-                        if f.get('url') and f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none':
-                            direct_url = f['url']
-                            break
-                    if not direct_url:
-                        for f in info['formats']:
-                            if f.get('url'):
-                                direct_url = f['url']
-                                break
+            status = result.get('status')
+            download_url = None
 
-                if not direct_url:
-                    raise Exception("Could not find a direct downloadable stream for this link.")
+            if status in ['tunnel', 'redirect']:
+                download_url = result.get('url')
+            elif status == 'picker':
+                picker_items = result.get('picker', [])
+                if picker_items:
+                    download_url = picker_items[0].get('url')
+            
+            if not download_url:
+                raise Exception(result.get('text', 'Could not extract direct stream URL.'))
 
             response_data = {
                 'success': True,
-                'title': title,
-                'thumbnail': thumbnail,
-                'duration': duration_str,
-                'uploader': uploader,
-                'download_url': direct_url,
+                'title': 'YouTube Media',
+                'duration': 'Ready',
+                'uploader': 'YouTube',
+                'download_url': download_url,
                 'formats': [{
                     'format_id': 'best',
-                    'resolution': 'MP4 (Standard)',
+                    'resolution': 'HD (MP4)',
                     'filesize': 'Direct Stream',
-                    'download_url': direct_url
+                    'download_url': download_url
                 }]
             }
 
@@ -89,4 +77,4 @@ class handler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            self.wfile.write(json.dumps({'error': f'Failed to extract link: {str(e)}'}).encode('utf-8'))
+            self.wfile.write(json.dumps({'error': f'Download error: {str(e)}'}).encode('utf-8'))
