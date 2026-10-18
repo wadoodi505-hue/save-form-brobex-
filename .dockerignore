@@ -1,0 +1,12 @@
+﻿node_modules
+dist
+dist-server
+downloads
+.git
+.env
+.env.*
+!.env.example
+server/cookies.txt
+*.zip
+brobex-test.mp4
+project-structure.txt

@@ -1,31 +1,29 @@
-FROM node:18-slim
+﻿
+FROM node:22-bookworm-slim
 
-# Install Python, FFmpeg, and curl (required for yt-dlp to download/stream videos)
-RUN apt-get update && apt-get install -y \
+# Install required system tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
-    python3-pip \
     ffmpeg \
+    ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install the latest yt-dlp binary globally
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp
+# Install yt-dlp at a known executable path
+RUN curl -fL --retry 3 \
+    https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    -o /usr/local/bin/yt-dlp \
+    && chmod 755 /usr/local/bin/yt-dlp
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy package configuration files from your root directory
+# Install Node.js dependencies
 COPY package*.json ./
+RUN npm ci --include=dev
 
-# Install project dependencies
-RUN npm install
-
-# Copy all your project files (including the 'server' folder and cookies.txt) into the container
+# Copy application source
 COPY . .
 
-# Expose the port your backend runs on
-EXPOSE 3000
+EXPOSE 8787
 
-# Command to start your backend server (pointing to your server/server.cjs or server/index.ts)
-CMD ["node", "server/server.cjs"]
+CMD ["npm", "start"]
