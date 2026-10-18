@@ -151,19 +151,11 @@ export default function Home() {
     setNotice(`Generating ${selectedFormat}p direct download stream...`);
 
     try {
-      // Connect to public extraction relay to obtain direct downloadable MP4 stream URL
-      const response = await fetch('https://api.cobalt.tools/api/json', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: videoData.originalUrl,
-          videoQuality: selectedFormat,
-        }),
-      });
-
+      // Call our internal Vercel serverless proxy endpoint to bypass CORS and timeouts
+      const response = await fetch(
+        `/api/download?url=${encodeURIComponent(videoData.originalUrl)}&quality=${selectedFormat}`
+      );
+      
       const data = await response.json();
       let downloadUrl = '';
 
@@ -171,15 +163,17 @@ export default function Home() {
         downloadUrl = data.url;
       } else if (data.status === 'picker' && data.picker && data.picker.length > 0) {
         downloadUrl = data.picker[0].url;
+      } else if (data.url) {
+        downloadUrl = data.url;
       }
 
       if (!downloadUrl) {
-        throw new Error(data.text || 'Could not resolve direct stream link.');
+        throw new Error(data.text || data.error || 'Could not resolve direct stream link.');
       }
 
       setNotice('Initializing file download to your device...');
 
-      // Trigger direct file download in browser without opening YouTube
+      // Trigger direct file download in browser
       const a = document.createElement('a');
       a.href = downloadUrl;
       a.target = '_blank';
@@ -191,7 +185,7 @@ export default function Home() {
 
       setNotice('Download started successfully on your device!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Download failed. Please try another video link.');
+      setError(err instanceof Error ? err.message : 'Download failed. Please try again.');
     } finally {
       setDownloading(false);
     }
