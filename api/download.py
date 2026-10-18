@@ -2,10 +2,10 @@ from http.server import BaseHTTPRequestHandler
 import json
 import urllib.parse
 import yt_dlp
+import os
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # Parse query parameters from the URL
         parsed_path = urllib.parse.urlparse(self.path)
         query_params = urllib.parse.parse_qs(parsed_path.query)
         
@@ -20,22 +20,18 @@ class handler(BaseHTTPRequestHandler):
             return
 
         try:
-            # yt-dlp options configured specifically to bypass YouTube's "Sign in to confirm you're not a bot" challenge
+            # Locate cookies.txt inside the server folder
+            cookie_path = os.path.join(os.getcwd(), 'server', 'cookies.txt')
+
             ydl_opts = {
-                'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
+                'format': 'best[ext=mp4]/best',
                 'quiet': True,
                 'no_warnings': True,
-                # Rotate player clients to bypass Vercel datacenter IP bot detection
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['ios', 'mweb', 'android', 'web']
-                    }
-                },
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                }
             }
+
+            # If cookies.txt exists, attach it to yt-dlp to bypass bot detection
+            if os.path.exists(cookie_path):
+                ydl_opts['cookiefile'] = cookie_path
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
@@ -46,7 +42,7 @@ class handler(BaseHTTPRequestHandler):
                 duration_sec = info.get('duration', 0)
                 uploader = info.get('uploader', '')
 
-                # Format duration into standard MM:SS or HH:MM:SS
+                # Format duration
                 if duration_sec:
                     m, s = divmod(int(duration_sec), 60)
                     h, m = divmod(m, 60)
@@ -54,26 +50,19 @@ class handler(BaseHTTPRequestHandler):
                 else:
                     duration_str = "N/A"
 
-                # Extract available formats for quality selection
                 formats_list = []
                 if 'formats' in info:
                     for f in info['formats']:
-                        # Keep MP4 streams or formats with valid URLs
                         if f.get('url') and (f.get('ext') == 'mp4' or f.get('vcodec') != 'none'):
-                            height = f.get('height') or f.get('format_note') or 'SD'
+                            height = f.get('height') or 'SD'
                             res_label = f"{height}p" if str(height).isdigit() else str(height)
-                            filesize_bytes = f.get('filesize') or f.get('filesize_approx')
-                            filesize_str = f"{round(filesize_bytes / (1024 * 1024), 1)} MB" if filesize_bytes else "Direct Link"
-
                             formats_list.append({
                                 'format_id': f.get('format_id', 'best'),
                                 'resolution': res_label,
-                                'fps': f.get('fps'),
-                                'filesize': filesize_str,
+                                'filesize': 'HD Stream',
                                 'download_url': f.get('url')
                             })
 
-                # Fallback to direct_url if list is empty
                 if not direct_url and formats_list:
                     direct_url = formats_list[-1]['download_url']
 
@@ -92,7 +81,6 @@ class handler(BaseHTTPRequestHandler):
                 'formats': formats_list if formats_list else [{
                     'format_id': 'best',
                     'resolution': 'HD (MP4)',
-                    'filesize': 'Optimal',
                     'download_url': direct_url
                 }]
             }
@@ -103,7 +91,4 @@ class handler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            error_msg = str(e)
-            if "Sign in to confirm" in error_msg:
-                error_msg = "YouTube protected this link. Please try again in a moment or try another video URL."
-            self.wfile.write(json.dumps({'error': error_msg}).encode('utf-8'))
+            self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
