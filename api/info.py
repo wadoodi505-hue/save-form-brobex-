@@ -3,6 +3,8 @@ import yt_dlp
 
 app = Flask(__name__)
 
+# Listen to both /api/info and root to prevent 404 errors on Vercel
+@app.route('/api/info', methods=['POST', 'GET'])
 @app.route('/', methods=['POST', 'GET'])
 def get_info():
     try:
