@@ -137,10 +137,11 @@ export default function Home() {
     if (!videoData) return;
 
     setDownloading(true);
-    setNotice(`Starting direct MP4 download from Save From Brobex...`);
+    setNotice(`Preparing direct MP4 download file...`);
     setError('');
 
     try {
+      // Connect directly to your backend yt-dlp download endpoint
       const res = await fetch('/api/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -151,7 +152,7 @@ export default function Home() {
       });
 
       if (!res.ok) {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || 'Download process failed.');
       }
 
