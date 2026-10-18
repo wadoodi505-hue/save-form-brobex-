@@ -16,6 +16,7 @@ import {
   Youtube,
   Instagram,
   Music2,
+  Play,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Seo } from '../components/Seo';
@@ -62,6 +63,7 @@ export default function Home() {
   const [notice, setNotice] = useState('');
   const [videoData, setVideoData] = useState<VideoData | null>(null);
   const [selectedFormat, setSelectedFormat] = useState('1080');
+  const [isPlaying, setIsPlaying] = useState(false);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -69,6 +71,7 @@ export default function Home() {
     setError('');
     setNotice('');
     setVideoData(null);
+    setIsPlaying(false);
 
     const value = url.trim();
 
@@ -126,7 +129,7 @@ export default function Home() {
       });
 
       setSelectedFormat('1080');
-      setNotice('Video preview ready! Choose quality and download.');
+      setNotice('Video preview ready! Play or stream directly on Brobex.');
     } catch (err) {
       setError(
         err instanceof Error
@@ -142,25 +145,14 @@ export default function Home() {
     if (!videoData || !videoData.videoId) return;
 
     setDownloading(true);
-    setNotice(`Preparing ${selectedFormat}p MP4 download...`);
+    setNotice(`Loading ${selectedFormat}p stream on Brobex...`);
 
     try {
-      // Professional streamlined routing based on selected quality
-      await new Promise((resolve) => setTimeout(resolve, 800)); // Smooth UX delay
-      
-      const downloadTarget = `https://www.ssyoutube.com/watch?v=${videoData.videoId}`;
-      
-      const a = document.createElement('a');
-      a.href = downloadTarget;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
-      setNotice('Download stream initialized successfully!');
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      setIsPlaying(true);
+      setNotice('Now playing and streaming directly on Save From Brobex!');
     } catch (err) {
-      setError('Could not initiate download stream.');
+      setError('Could not initialize video stream.');
     } finally {
       setDownloading(false);
     }
@@ -173,6 +165,7 @@ export default function Home() {
       setError('');
       setNotice('');
       setVideoData(null);
+      setIsPlaying(false);
     } catch {
       setError('Clipboard access was blocked. Paste your link into the field instead.');
     }
@@ -183,13 +176,14 @@ export default function Home() {
     setError('');
     setNotice('');
     setVideoData(null);
+    setIsPlaying(false);
   }
 
   return (
     <>
       <Seo
         title="Save From Brobex — Your Media. Your Choice."
-        description="Preview supported media and download accessible direct MP4 files with Save From Brobex."
+        description="Preview supported media and stream or download accessible MP4 files directly with Save From Brobex."
       />
 
       <section className="hero">
@@ -227,7 +221,7 @@ export default function Home() {
           </motion.p>
 
           <p className="hero-copy">
-            Preview supported media or download accessible MP4 videos in your preferred quality.
+            Preview supported media or stream accessible MP4 videos in your preferred quality.
             Paste a link to get started.
           </p>
 
@@ -258,6 +252,7 @@ export default function Home() {
                 setError('');
                 setNotice('');
                 setVideoData(null);
+                setIsPlaying(false);
               }}
               aria-describedby="url-feedback"
             />
@@ -311,7 +306,7 @@ export default function Home() {
             >
               <div className="media-result-heading">
                 <div>
-                  <div className="section-kicker">READY TO DOWNLOAD</div>
+                  <div className="section-kicker">READY TO STREAM</div>
                   <h2>{videoData.title}</h2>
                   <p>Quality: {videoData.duration} {videoData.uploader ? `• By ${videoData.uploader}` : ''}</p>
                 </div>
@@ -322,12 +317,31 @@ export default function Home() {
               </div>
 
               {videoData.thumbnail && (
-                <div className="my-4 overflow-hidden rounded-xl border border-slate-700">
-                  <img
-                    src={videoData.thumbnail}
-                    alt={videoData.title}
-                    className="w-full h-64 object-cover"
-                  />
+                <div className="my-4 overflow-hidden rounded-xl border border-slate-700 relative">
+                  {isPlaying ? (
+                    <div className="w-full h-64 bg-black flex items-center justify-center">
+                      <iframe
+                        src={`https://www.youtube.com/embed/${videoData.videoId}?autoplay=1`}
+                        title={videoData.title}
+                        className="w-full h-64 border-0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                  ) : (
+                    <div className="relative group cursor-pointer" onClick={handleDownload}>
+                      <img
+                        src={videoData.thumbnail}
+                        alt={videoData.title}
+                        className="w-full h-64 object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition-all">
+                        <div className="w-14 h-14 rounded-full bg-amber-500 flex items-center justify-center text-slate-950 shadow-lg">
+                          <Play size={24} className="ml-1 fill-slate-950" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -353,8 +367,8 @@ export default function Home() {
                   disabled={downloading}
                   className="gold-btn flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold cursor-pointer"
                 >
-                  {downloading ? <span className="spinner" /> : <Download size={18} />}
-                  <span>{downloading ? 'Preparing Download...' : 'Download MP4'}</span>
+                  {downloading ? <span className="spinner" /> : <Play size={18} />}
+                  <span>{downloading ? 'Loading Stream...' : 'Play & Stream on Brobex'}</span>
                 </button>
               </div>
             </motion.section>
@@ -395,7 +409,7 @@ export default function Home() {
             </span>
             <span>
               <b>YouTube</b>
-              <small>Preview & Download</small>
+              <small>Preview & Stream</small>
             </span>
           </div>
 
@@ -430,8 +444,7 @@ export default function Home() {
           </div>
 
           <p>
-            YouTube previews and format selection link directly to server-side yt-dlp processing. Direct HTTPS
-            MP4 file URLs can be downloaded when the source permits access.
+            YouTube previews and stream playback are integrated directly into Save From Brobex with zero external site redirects.
           </p>
         </div>
       </section>
@@ -474,7 +487,7 @@ export default function Home() {
             </div>
             <h3>Validate the source</h3>
             <p>
-              The server checks the URL and reports available qualities and formats for download.
+              The application checks the URL and loads available previews instantly.
             </p>
             <span className="step-arrow">
               <ArrowRight />
@@ -486,9 +499,9 @@ export default function Home() {
             <div className="step-icon">
               <FileVideo />
             </div>
-            <h3>Download your video</h3>
+            <h3>Stream your video</h3>
             <p>
-              Choose your preferred resolution and download your MP4 file securely.
+              Enjoy your media directly on Save From Brobex without unnecessary redirects.
             </p>
             <span className="step-arrow">
               <ArrowRight />
