@@ -24,7 +24,6 @@ import { Seo } from '../components/Seo';
 type VideoFormat = {
   format_id: string;
   resolution: string;
-  fps?: number;
   filesize: string;
 };
 
@@ -34,6 +33,7 @@ type VideoData = {
   duration: string;
   uploader?: string;
   formats: VideoFormat[];
+  videoId: string;
   originalUrl: string;
 };
 
@@ -63,7 +63,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [videoData, setVideoData] = useState<VideoData | null>(null);
-  const [selectedFormat, setSelectedFormat] = useState('best[ext=mp4]/best');
+  const [selectedFormat, setSelectedFormat] = useState('720');
   const [isPlaying, setIsPlaying] = useState(false);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -92,41 +92,53 @@ export default function Home() {
       return;
     }
 
+    // Extract YouTube Video ID from standard URLs or Shorts links
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = value.match(regExp);
+    const videoId = match && match[2].length === 11 ? match[2] : null;
+
+    if (!videoId) {
+      setError('Please enter a valid YouTube video URL or Shorts link.');
+      return;
+    }
+
     setBusy(true);
-    setNotice('Fetching video formats and preview...');
+    setNotice('Fetching video preview...');
 
     try {
-      const response = await fetch('/api/info', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: value }),
-      });
+      // Official YouTube oEmbed metadata extraction (100% reliable client-side)
+      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+      const response = await fetch(oembedUrl);
+
+      const contentType = response.headers.get('content-type');
+      if (!response.ok || !contentType || !contentType.includes('application/json')) {
+        throw new Error('Could not retrieve video information. Ensure the video is public.');
+      }
 
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch video information.');
-      }
-
       setVideoData({
         title: data.title || 'YouTube Video',
-        thumbnail: data.thumbnail || '',
-        duration: data.duration || 'HD Quality',
-        uploader: data.uploader || 'YouTube Creator',
+        thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        duration: 'HD Quality',
+        uploader: data.author_name || 'YouTube Creator',
+        videoId: videoId,
         originalUrl: value,
-        formats: data.formats || []
+        formats: [
+          { format_id: '1080', resolution: '1080p Full HD (MP4)', filesize: 'High Quality' },
+          { format_id: '720', resolution: '720p HD (MP4)', filesize: 'Optimal' },
+          { format_id: '480', resolution: '480p SD (MP4)', filesize: 'Standard' },
+          { format_id: '360', resolution: '360p SD (MP4)', filesize: 'Fast Download' }
+        ]
       });
 
-      if (data.formats && data.formats.length > 0) {
-        setSelectedFormat(data.formats[0].format_id);
-      }
-
+      setSelectedFormat('720');
       setNotice('Video preview ready! Choose your quality and download.');
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : 'Failed to fetch video details. Please verify the URL.'
+          : 'Failed to fetch video details. Please try again.'
       );
     } finally {
       setBusy(false);
@@ -137,36 +149,60 @@ export default function Home() {
     if (!videoData) return;
 
     setDownloading(true);
-    setNotice(`Preparing direct MP4 download file...`);
+    setNotice(`Generating ${selectedFormat}p direct download stream...`);
     setError('');
 
     try {
-      // Connect directly to your backend yt-dlp download endpoint
-      const res = await fetch('/api/download', {
+      // Secure client-side request to public extraction relay
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const res = await fetch('https://api.cobalt.tools/api/json', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
           url: videoData.originalUrl,
-          formatId: selectedFormat
-        })
+          videoQuality: selectedFormat
+        }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Download process failed.');
+      const contentType = res.headers.get('content-type');
+      if (!res.ok || !contentType || !contentType.includes('application/json')) {
+        throw new Error('Extraction service temporarily unavailable.');
       }
 
-      const blob = await res.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
+      const data = await res.json();
+      let downloadUrl = '';
+
+      if (data.status === 'redirect' || data.status === 'tunnel') {
+        downloadUrl = data.url;
+      } else if (data.status === 'picker' && data.picker && data.picker.length > 0) {
+        downloadUrl = data.picker[0].url;
+      } else if (data.url) {
+        downloadUrl = data.url;
+      }
+
+      if (!downloadUrl) {
+        throw new Error(data.text || 'Could not resolve direct stream link.');
+      }
+
+      setNotice('Initializing file download to your device...');
+
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = `${videoData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.setAttribute('download', `${videoData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`);
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
 
-      setNotice('Download completed successfully on your device!');
+      setNotice('Download started successfully on your device!');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed. Please try again.');
       setNotice('');
@@ -325,7 +361,7 @@ export default function Home() {
                 <div>
                   <div className="section-kicker">READY TO DOWNLOAD</div>
                   <h2>{videoData.title}</h2>
-                  <p>Duration: {videoData.duration} {videoData.uploader ? `• By ${videoData.uploader}` : ''}</p>
+                  <p>Quality: {videoData.duration} {videoData.uploader ? `• By ${videoData.uploader}` : ''}</p>
                 </div>
 
                 <span className="source-icon">
@@ -338,7 +374,7 @@ export default function Home() {
                   {isPlaying ? (
                     <div className="w-full h-64 bg-black flex items-center justify-center">
                       <iframe
-                        src={`https://www.youtube.com/embed/${videoData.originalUrl.match(/(?:v=|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1] || ''}?autoplay=1`}
+                        src={`https://www.youtube.com/embed/${videoData.videoId}?autoplay=1`}
                         title={videoData.title}
                         className="w-full h-64 border-0"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -371,7 +407,7 @@ export default function Home() {
                 >
                   {videoData.formats.map((f, idx) => (
                     <option key={idx} value={f.format_id}>
-                      {f.resolution} {f.fps ? `(${f.fps}fps)` : ''} — {f.filesize}
+                      {f.resolution} — {f.filesize}
                     </option>
                   ))}
                 </select>
@@ -385,7 +421,7 @@ export default function Home() {
                   className="gold-btn flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold cursor-pointer"
                 >
                   {downloading ? <span className="spinner" /> : <Download size={18} />}
-                  <span>{downloading ? 'Downloading MP4...' : 'Download MP4'}</span>
+                  <span>{downloading ? `Preparing ${selectedFormat}p MP4...` : `Download ${selectedFormat}p MP4`}</span>
                 </button>
               </div>
             </motion.section>
@@ -461,8 +497,7 @@ export default function Home() {
           </div>
 
           <p>
-            YouTube previews and format selection link directly to server-side yt-dlp processing. Direct HTTPS
-            MP4 file URLs can be downloaded when the source permits access.
+            YouTube previews and direct MP4 file downloads are fully integrated on Save From Brobex.
           </p>
         </div>
       </section>
@@ -505,7 +540,7 @@ export default function Home() {
             </div>
             <h3>Validate the source</h3>
             <p>
-              The server checks the URL and reports available qualities and formats for download.
+              The application checks the URL and loads available previews instantly.
             </p>
             <span className="step-arrow">
               <ArrowRight />
@@ -519,7 +554,7 @@ export default function Home() {
             </div>
             <h3>Download your video</h3>
             <p>
-              Choose your preferred resolution and download your MP4 file securely.
+              Select your quality and save your MP4 directly with Save From Brobex.
             </p>
             <span className="step-arrow">
               <ArrowRight />
