@@ -149,31 +149,51 @@ export default function Home() {
 
     setDownloading(true);
     setNotice(`Generating ${selectedFormat}p direct download stream...`);
+    setError('');
+
+    const pipedInstances = [
+      `https://pipedapi.kavin.rocks/streams/${videoData.videoId}`,
+      `https://pipedapi.rhea.dev/streams/${videoData.videoId}`,
+      `https://pipedapi.privacy.com.de/streams/${videoData.videoId}`
+    ];
+
+    let downloadUrl = '';
+
+    // Rotate through public extraction APIs directly from the browser (bypassing Vercel cloud IP blocks)
+    for (const apiEndpoint of pipedInstances) {
+      try {
+        const res = await fetch(apiEndpoint);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const streams = data.videoStreams || [];
+
+        // Find best matching MP4 stream
+        for (const s of streams) {
+          if (s.url && s.videoOnly === false) {
+            downloadUrl = s.url;
+            break;
+          }
+        }
+        if (!downloadUrl && streams.length > 0) {
+          downloadUrl = streams[0].url;
+        }
+
+        if (downloadUrl) break;
+      } catch {
+        continue;
+      }
+    }
+
+    if (!downloadUrl) {
+      setDownloading(false);
+      setError('Extraction relays are busy. Please try another link or try again in a moment.');
+      setNotice('');
+      return;
+    }
 
     try {
-      // Call our internal Vercel serverless proxy endpoint to bypass CORS and timeouts
-      const response = await fetch(
-        `/api/download?url=${encodeURIComponent(videoData.originalUrl)}&quality=${selectedFormat}`
-      );
-      
-      const data = await response.json();
-      let downloadUrl = '';
-
-      if (data.status === 'redirect' || data.status === 'tunnel') {
-        downloadUrl = data.url;
-      } else if (data.status === 'picker' && data.picker && data.picker.length > 0) {
-        downloadUrl = data.picker[0].url;
-      } else if (data.url) {
-        downloadUrl = data.url;
-      }
-
-      if (!downloadUrl) {
-        throw new Error(data.text || data.error || 'Could not resolve direct stream link.');
-      }
-
       setNotice('Initializing file download to your device...');
 
-      // Trigger direct file download in browser
       const a = document.createElement('a');
       a.href = downloadUrl;
       a.target = '_blank';
@@ -186,6 +206,7 @@ export default function Home() {
       setNotice('Download started successfully on your device!');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed. Please try again.');
+      setNotice('');
     } finally {
       setDownloading(false);
     }
