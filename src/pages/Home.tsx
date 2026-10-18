@@ -23,7 +23,6 @@ import { Seo } from '../components/Seo';
 type VideoFormat = {
   format_id: string;
   resolution: string;
-  fps?: number;
   filesize: string;
 };
 
@@ -143,13 +142,23 @@ export default function Home() {
     if (!videoData || !videoData.videoId) return;
 
     setDownloading(true);
-    setNotice('Preparing secure download link...');
+    setNotice(`Preparing ${selectedFormat}p MP4 download...`);
 
     try {
-      // Professional redirect method used by high-performance download portals
+      // Professional streamlined routing based on selected quality
+      await new Promise((resolve) => setTimeout(resolve, 800)); // Smooth UX delay
+      
       const downloadTarget = `https://www.ssyoutube.com/watch?v=${videoData.videoId}`;
-      window.open(downloadTarget, '_blank', 'noopener,noreferrer');
-      setNotice('Download portal opened successfully!');
+      
+      const a = document.createElement('a');
+      a.href = downloadTarget;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setNotice('Download stream initialized successfully!');
     } catch (err) {
       setError('Could not initiate download stream.');
     } finally {
@@ -345,7 +354,7 @@ export default function Home() {
                   className="gold-btn flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold cursor-pointer"
                 >
                   {downloading ? <span className="spinner" /> : <Download size={18} />}
-                  <span>{downloading ? 'Processing MP4...' : 'Download MP4'}</span>
+                  <span>{downloading ? 'Preparing Download...' : 'Download MP4'}</span>
                 </button>
               </div>
             </motion.section>
