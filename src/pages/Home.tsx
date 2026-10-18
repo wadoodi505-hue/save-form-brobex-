@@ -24,6 +24,7 @@ import { Seo } from '../components/Seo';
 type VideoFormat = {
   format_id: string;
   resolution: string;
+  fps?: number;
   filesize: string;
 };
 
@@ -95,7 +96,6 @@ export default function Home() {
     setNotice('Fetching video formats and preview...');
 
     try {
-      // Call your backend /api/info endpoint powered by yt-dlp
       const response = await fetch('/api/info', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -141,7 +141,6 @@ export default function Home() {
     setError('');
 
     try {
-      // Direct POST request to your backend download endpoint
       const res = await fetch('/api/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -156,7 +155,6 @@ export default function Home() {
         throw new Error(errData.error || 'Download process failed.');
       }
 
-      // Handle stream download directly in browser
       const blob = await res.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -189,7 +187,7 @@ export default function Home() {
     }
   }
 
-  fn clearUrl() {
+  function clearUrl() {
     setUrl('');
     setError('');
     setNotice('');
@@ -289,13 +287,7 @@ export default function Home() {
               <button
                 type="button"
                 className="icon-action clear-btn"
-                onClick={() => {
-                  setUrl('');
-                  setError('');
-                  setNotice('');
-                  setVideoData(null);
-                  setIsPlaying(false);
-                }}
+                onClick={clearUrl}
                 aria-label="Clear URL"
               >
                 <Trash2 size={17} />
@@ -378,7 +370,7 @@ export default function Home() {
                 >
                   {videoData.formats.map((f, idx) => (
                     <option key={idx} value={f.format_id}>
-                      {f.resolution} ({f.fps}fps) — {f.filesize}
+                      {f.resolution} {f.fps ? `(${f.fps}fps)` : ''} — {f.filesize}
                     </option>
                   ))}
                 </select>
