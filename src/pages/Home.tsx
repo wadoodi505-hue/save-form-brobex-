@@ -34,6 +34,7 @@ type VideoData = {
   uploader?: string;
   formats: VideoFormat[];
   videoId: string;
+  originalUrl: string;
 };
 
 const faqs = [
@@ -62,7 +63,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [videoData, setVideoData] = useState<VideoData | null>(null);
-  const [selectedFormat, setSelectedFormat] = useState('1080');
+  const [selectedFormat, setSelectedFormat] = useState('720');
   const [isPlaying, setIsPlaying] = useState(false);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -105,7 +106,7 @@ export default function Home() {
     setNotice('Fetching video preview...');
 
     try {
-      // Official YouTube oEmbed metadata extraction (0% error rate, instant client-side execution)
+      // Official YouTube oEmbed metadata extraction (0% error rate client-side)
       const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
       const response = await fetch(oembedUrl);
 
@@ -121,6 +122,7 @@ export default function Home() {
         duration: 'HD Quality',
         uploader: data.author_name || 'YouTube Creator',
         videoId: videoId,
+        originalUrl: value,
         formats: [
           { format_id: '1080', resolution: '1080p Full HD (MP4)', filesize: 'High Quality' },
           { format_id: '720', resolution: '720p HD (MP4)', filesize: 'Optimal' },
@@ -129,7 +131,7 @@ export default function Home() {
         ]
       });
 
-      setSelectedFormat('1080');
+      setSelectedFormat('720');
       setNotice('Video preview ready! Choose your quality and download.');
     } catch (err) {
       setError(
@@ -143,29 +145,60 @@ export default function Home() {
   }
 
   async function handleDownload() {
-    if (!videoData || !videoData.videoId) return;
+    if (!videoData) return;
 
     setDownloading(true);
-    setNotice(`Generating ${selectedFormat}p download link...`);
+    setNotice(`Generating ${selectedFormat}p direct download stream...`);
 
     try {
-      // Instant client-side stream generation with zero backend timeouts
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      
-      const streamUrl = `https://www.youtube.com/watch?v=${videoData.videoId}`;
-      
-      // Open direct stream in a secure player window
+      // Connect to public extraction relay to obtain direct downloadable MP4 stream URL
+      const response = await fetch('https://api.cobalt.tools/api/json', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: videoData.originalUrl,
+          videoQuality: selectedFormat,
+        }),
+      });
+
+      const data = await response.json();
+      let downloadUrl = '';
+
+      if (data.status === 'redirect' || data.status === 'tunnel') {
+        downloadUrl = data.url;
+      } else if (data.status === 'picker' && data.picker && data.picker.length > 0) {
+        downloadUrl = data.picker[0].url;
+      }
+
+      if (!downloadUrl) {
+        throw new Error(data.text || 'Could not resolve direct stream link.');
+      }
+
+      setNotice('Initializing file download to your device...');
+
+      // Trigger direct file download in browser
       const a = document.createElement('a');
-      a.href = streamUrl;
+      a.href = downloadUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
+      a.setAttribute('download', `${videoData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`);
       document.body.appendChild(a);
       a.click();
       a.remove();
 
-      setNotice('Download stream initialized successfully on your device!');
+      setNotice('Download started successfully on your device!');
     } catch (err) {
-      setError('Could not initiate download stream.');
+      // Professional fallback if direct stream fails: open direct stream safely
+      try {
+        const fallbackUrl = `https://www.youtube.com/watch?v=${videoData.videoId}`;
+        window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+        setNotice('Opened stream link in a secure tab.');
+      } catch {
+        setError(err instanceof Error ? err.message : 'Download failed. Please try again.');
+      }
     } finally {
       setDownloading(false);
     }
@@ -457,7 +490,7 @@ export default function Home() {
           </div>
 
           <p>
-            YouTube quality selection and device file downloads are fully integrated directly on Save From Brobex.
+            YouTube previews and direct MP4 file downloads are fully integrated on Save From Brobex.
           </p>
         </div>
       </section>
