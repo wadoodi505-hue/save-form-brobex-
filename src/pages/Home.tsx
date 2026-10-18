@@ -82,9 +82,7 @@ export default function Home() {
     try {
       parsed = new URL(value);
     } catch {
-      setError(
-        'That link does not look valid. Include the full HTTPS address.',
-      );
+      setError('That link does not look valid. Include the full HTTPS address.');
       return;
     }
 
@@ -93,57 +91,41 @@ export default function Home() {
       return;
     }
 
-    // Handle direct HTTPS MP4 file downloads
-    if (/\.mp4$/i.test(parsed.pathname)) {
-      if (parsed.protocol !== 'https:') {
-        setError('Direct MP4 downloads require an HTTPS URL.');
-        return;
-      }
-
-      window.location.assign(parsed.toString());
-      setNotice('Your MP4 download is starting. Check your browser downloads.');
-      return;
-    }
-
     setBusy(true);
+    setNotice('Fetching video details and preview...');
 
     try {
-      const response = await fetch('/api/info', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: value }),
-      });
-
+      // Calls your Vercel Python API to fetch metadata and direct stream links
+      const response = await fetch(`/api/download?url=${encodeURIComponent(value)}`);
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch video information.');
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch video details.');
       }
 
-      if (data && data.formats && data.formats.length > 0) {
-        setVideoData(data);
-        setSelectedFormat(data.formats[0].format_id);
-        setNotice('Video preview ready. Select quality and download.');
-      } else {
-        setNotice('No downloadable video streams found for this link.');
-      }
-    } catch (err) {
-      // Fallback preview generation if info route isn't configured yet
       setVideoData({
-        title: 'Video Stream Preview',
-        thumbnail: '',
-        duration: 'Available',
-        formats: [{ format_id: 'best', resolution: 'HD (MP4)', filesize: 'Optimal' }]
+        title: data.title,
+        thumbnail: data.thumbnail,
+        duration: data.duration,
+        uploader: data.uploader,
+        formats: data.formats || []
       });
-      setSelectedFormat('best');
-      setNotice('Ready to fetch direct link.');
+
+      if (data.formats && data.formats.length > 0) {
+        setSelectedFormat(data.formats[0].format_id);
+      }
+
+      setNotice('Video preview ready! Select quality and download.');
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Something went wrong. Please try again.'
+      );
     } finally {
       setBusy(false);
     }
   }
-
   async function handleDownload() {
     if (!url) return;
 
