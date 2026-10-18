@@ -6,3 +6,4 @@ dist-server/
 !.env.example
 downloads/
 yt-downloader-backend/node_modules/
+server/cookies.txt
