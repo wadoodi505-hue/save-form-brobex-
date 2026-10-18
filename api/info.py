@@ -3,7 +3,7 @@ import yt_dlp
 
 app = Flask(__name__)
 
-@app.route('/api/info', methods=['POST', 'GET'])
+@app.route('/', methods=['POST', 'GET'])
 def get_info():
     try:
         data = request.get_json() or {}
@@ -12,12 +12,9 @@ def get_info():
         if not url:
             return jsonify({"error": "No URL provided"}), 400
 
-        # Extract video info using yt-dlp
         ydl_opts = {'quiet': True, 'skip_download': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            
-            # Return basic media details to your frontend
             return jsonify({
                 "title": info.get("title"),
                 "duration": info.get("duration"),
