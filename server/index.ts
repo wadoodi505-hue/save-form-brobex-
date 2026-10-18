@@ -132,7 +132,7 @@ app.post(
       if (hasCookies) {
         ytOptions.cookies = cookiesPath;
       } else {
-        ytOptions.extractorArgs = 'youtube:player_client=android';
+        ytOptions.extractorArgs = 'youtube:player_client=android,web';
       }
 
       const output: any = await ytDlp(url, ytOptions);
@@ -191,7 +191,9 @@ app.post(
     }
 
     const { url, formatId } = parsed.data;
-    const targetFormat = formatId ? `${formatId}+140/best[ext=mp4]/best` : 'best[ext=mp4]/best';
+    
+    // Fallback safely to prevent stream breakage on specific format matching
+    const targetFormat = formatId ? `${formatId}+bestaudio/best[ext=mp4]/best` : 'best[ext=mp4]/best';
 
     let ytProcess: any;
     try {
@@ -203,12 +205,13 @@ app.post(
         preferFreeFormats: true,
         ignoreConfig: true,
         noPlaylist: true,
+        mergeOutputFormat: 'mp4',
       };
 
       if (hasCookies) {
         downloadOptions.cookies = cookiesPath;
       } else {
-        downloadOptions.extractorArgs = 'youtube:player_client=android';
+        downloadOptions.extractorArgs = 'youtube:player_client=android,web';
       }
 
       ytProcess = ytDlp(url, downloadOptions);
