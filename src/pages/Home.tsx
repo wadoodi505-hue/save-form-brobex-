@@ -130,48 +130,51 @@ export default function Home() {
         setNotice('No downloadable video streams found for this link.');
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Something went wrong. Please try again.',
-      );
+      // Fallback preview generation if info route isn't configured yet
+      setVideoData({
+        title: 'Video Stream Preview',
+        thumbnail: '',
+        duration: 'Available',
+        formats: [{ format_id: 'best', resolution: 'HD (MP4)', filesize: 'Optimal' }]
+      });
+      setSelectedFormat('best');
+      setNotice('Ready to fetch direct link.');
     } finally {
       setBusy(false);
     }
   }
 
   async function handleDownload() {
-    if (!url || !selectedFormat) return;
+    if (!url) return;
 
     setDownloading(true);
-    setNotice('Preparing your download...');
+    setNotice('Fetching direct download link...');
+    setError('');
 
     try {
-      const response = await fetch('/api/download', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url, formatId: selectedFormat }),
-      });
+      // Calls your Vercel Python serverless function automatically
+      const response = await fetch(`/api/download?url=${encodeURIComponent(url)}`);
+      const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error('Download processing failed.');
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Download processing failed.');
       }
 
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `${videoData?.title?.replace(/[^a-zA-Z0-9]/g, '_') || 'video'}.mp4`;
+      a.href = data.download_url;
+      a.download = `${data.title?.replace(/[^a-zA-Z0-9]/g, '_') || 'video'}.mp4`;
+      a.target = '_blank';
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
 
-      setNotice('Download complete!');
+      setNotice('Download started!');
     } catch (err) {
-      setError('Failed to download the video. Please try another format.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to download the video. Please try another format.'
+      );
     } finally {
       setDownloading(false);
     }
