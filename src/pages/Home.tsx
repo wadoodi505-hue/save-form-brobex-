@@ -179,7 +179,7 @@ export default function Home() {
 
       setNotice('Initializing file download to your device...');
 
-      // Trigger direct file download in browser
+      // Trigger direct file download in browser without opening YouTube
       const a = document.createElement('a');
       a.href = downloadUrl;
       a.target = '_blank';
@@ -191,14 +191,7 @@ export default function Home() {
 
       setNotice('Download started successfully on your device!');
     } catch (err) {
-      // Professional fallback if direct stream fails: open direct stream safely
-      try {
-        const fallbackUrl = `https://www.youtube.com/watch?v=${videoData.videoId}`;
-        window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
-        setNotice('Opened stream link in a secure tab.');
-      } catch {
-        setError(err instanceof Error ? err.message : 'Download failed. Please try again.');
-      }
+      setError(err instanceof Error ? err.message : 'Download failed. Please try another video link.');
     } finally {
       setDownloading(false);
     }
