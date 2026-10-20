@@ -40,6 +40,14 @@ type VideoData = {
   videoId?: string;
 };
 
+type InfoResponse = {
+  title?: string;
+  thumbnail?: string;
+  duration?: string;
+  uploader?: string;
+  error?: string;
+};
+
 const faqs = [
   [
     'Can I download any video from any website?',
@@ -47,7 +55,7 @@ const faqs = [
   ],
   [
     'Can I download a YouTube video here?',
-    'You can preview supported public YouTube videos using the official embedded player and view their public metadata. This version does not download YouTube videos. Use YouTube’s own download options where available.',
+    'You can preview supported public YouTube videos using the embedded player and view their public metadata. This version does not download YouTube videos. Use YouTube’s own download options where available.',
   ],
   [
     'Does submitting a URL guarantee a download?',
@@ -61,7 +69,7 @@ const faqs = [
     'Does the website store downloaded videos?',
     'Direct MP4 files are streamed through the backend to your browser rather than stored as a permanent server library.',
   ],
-];
+] as const;
 
 function getYouTubeVideoId(value: string): string | undefined {
   try {
@@ -70,7 +78,9 @@ function getYouTubeVideoId(value: string): string | undefined {
 
     if (host === 'youtu.be') {
       const id = parsed.pathname.split('/').filter(Boolean)[0];
-      return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : undefined;
+      return id && /^[a-zA-Z0-9_-]{11}$/.test(id)
+        ? id
+        : undefined;
     }
 
     if (
@@ -86,12 +96,18 @@ function getYouTubeVideoId(value: string): string | undefined {
     if (!id) {
       const parts = parsed.pathname.split('/').filter(Boolean);
 
-      if (parts[0] === 'shorts' || parts[0] === 'embed' || parts[0] === 'live') {
+      if (
+        parts[0] === 'shorts' ||
+        parts[0] === 'embed' ||
+        parts[0] === 'live'
+      ) {
         id = parts[1];
       }
     }
 
-    return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : undefined;
+    return id && /^[a-zA-Z0-9_-]{11}$/.test(id)
+      ? id
+      : undefined;
   } catch {
     return undefined;
   }
@@ -152,18 +168,23 @@ export default function Home() {
       return;
     }
 
-    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+    if (
+      parsedUrl.protocol !== 'https:' &&
+      parsedUrl.protocol !== 'http:'
+    ) {
       setError('Only HTTP and HTTPS URLs are supported.');
       return;
     }
 
+    // Direct MP4 files are handled separately from YouTube previews.
     if (parsedUrl.pathname.toLowerCase().endsWith('.mp4')) {
       if (parsedUrl.protocol !== 'https:') {
         setError('Direct MP4 downloads require an HTTPS URL.');
         return;
       }
 
-      const rawFilename = parsedUrl.pathname.split('/').pop() || 'video.mp4';
+      const rawFilename =
+        parsedUrl.pathname.split('/').pop() || 'video.mp4';
       const filename = getSafeFilename(rawFilename);
 
       setVideoData({
@@ -182,15 +203,24 @@ export default function Home() {
         ],
       });
 
-      
       setNotice(
         'MP4 link ready. If you own this media or have permission to use it, select Download MP4 to validate and download the file.',
       );
       return;
     }
 
+    // This version supports YouTube previews and direct HTTPS MP4 files.
+    const videoId = getYouTubeVideoId(value);
+
+    if (!videoId) {
+      setError(
+        'This source is not supported yet. Use a public YouTube video link for a preview or a direct HTTPS MP4 URL for an authorized download.',
+      );
+      return;
+    }
+
     setBusy(true);
-    setNotice('Checking the link and retrieving available public metadata...');
+    setNotice('Checking the YouTube link and retrieving public metadata...');
 
     try {
       const response = await fetch(`${API_BASE}/api/info`, {
@@ -199,54 +229,38 @@ export default function Home() {
         body: JSON.stringify({ url: value }),
       });
 
-      const contentType = response.headers.get('content-type') || '';
+      const contentType =
+        response.headers.get('content-type') || '';
 
       if (!response.ok || !contentType.includes('application/json')) {
         throw new Error(
-          'The backend could not process this link. Please try again shortly.',
+          'The backend could not process this YouTube link. Please try again shortly.',
         );
       }
 
-      const data = await response.json();
-      const videoId = getYouTubeVideoId(value);
+      const data: InfoResponse = await response.json();
 
-      if (videoId) {
-        setVideoData({
-          kind: 'youtube',
-          title: data.title || 'YouTube Video',
-          thumbnail:
-            data.thumbnail ||
-            `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-          duration: data.duration || 'Available on YouTube',
-          uploader: data.uploader || 'YouTube Creator',
-          originalUrl: value,
-          videoId,
-          formats: [],
-        });
+      setVideoData({
+        kind: 'youtube',
+        title: data.title || 'YouTube Video',
+        thumbnail:
+          data.thumbnail ||
+          `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        duration: data.duration || 'Available on YouTube',
+        uploader: data.uploader || 'YouTube Creator',
+        originalUrl: value,
+        videoId,
+        formats: [],
+      });
 
-        setNotice(
-          'YouTube preview ready. Play the preview here or open the video on YouTube. Video downloads are not available through this preview.',
-        );
-      } else {
-        setVideoData({
-          kind: 'youtube',
-          title: data.title || 'Media Preview',
-          thumbnail: data.thumbnail || '',
-          duration: data.duration || 'Duration unavailable',
-          uploader: data.uploader || 'Source information',
-          originalUrl: value,
-          formats: [],
-        });
-
-        setNotice(
-          'Metadata retrieved. A playable preview is available only for supported YouTube links. Direct HTTPS MP4 links can be downloaded separately.',
-        );
-      }
+      setNotice(
+        'YouTube preview ready. Play the embedded video or open it on YouTube. Downloads are not available through this preview.',
+      );
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : 'Could not retrieve link information. Please try again.',
+          : 'Could not retrieve YouTube information. Please try again.',
       );
     } finally {
       setBusy(false);
@@ -271,17 +285,18 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: videoData.originalUrl,
-          formatId: 'direct-mp4',
         }),
       });
 
-      const contentType = res.headers.get('content-type') || '';
+      const contentType =
+        res.headers.get('content-type') || '';
 
       if (!res.ok) {
         let message = 'The server could not download this MP4 file.';
 
         if (contentType.includes('application/json')) {
           const errData = await res.json().catch(() => ({}));
+
           if (typeof errData.error === 'string') {
             message = errData.error;
           }
@@ -292,6 +307,7 @@ export default function Home() {
 
       if (contentType.includes('application/json')) {
         const errData = await res.json().catch(() => ({}));
+
         throw new Error(
           typeof errData.error === 'string'
             ? errData.error
@@ -302,7 +318,9 @@ export default function Home() {
       const blob = await res.blob();
 
       if (blob.size === 0) {
-        throw new Error('The downloaded file was empty. Please check the URL.');
+        throw new Error(
+          'The downloaded file was empty. Please check the URL.',
+        );
       }
 
       const downloadUrl = window.URL.createObjectURL(blob);
@@ -310,11 +328,14 @@ export default function Home() {
 
       anchor.href = downloadUrl;
       anchor.download = `${getSafeFilename(videoData.title)}.mp4`;
+
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
 
-      window.setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 1000);
+      window.setTimeout(() => {
+        window.URL.revokeObjectURL(downloadUrl);
+      }, 1000);
 
       setNotice('Your MP4 download has been prepared successfully.');
     } catch (err) {
@@ -332,6 +353,7 @@ export default function Home() {
   async function paste() {
     try {
       const text = await navigator.clipboard.readText();
+
       setUrl(text);
       setError('');
       setNotice('');
@@ -394,8 +416,8 @@ export default function Home() {
           </motion.p>
 
           <p className="hero-copy">
-            Preview supported YouTube videos or download accessible direct MP4
-            files you are authorized to use. Paste a link to get started.
+            Preview supported YouTube videos or download accessible direct
+            MP4 files you are authorized to use. Paste a link to get started.
           </p>
 
           <motion.form
@@ -451,8 +473,16 @@ export default function Home() {
               </button>
             )}
 
-            <button className="submit-btn" type="submit" disabled={busy}>
-              {busy ? <span className="spinner" /> : <Download size={18} />}
+            <button
+              className="submit-btn"
+              type="submit"
+              disabled={busy}
+            >
+              {busy ? (
+                <span className="spinner" />
+              ) : (
+                <Download size={18} />
+              )}
               <span>{busy ? 'Checking...' : 'Get Media'}</span>
               <ArrowRight size={16} />
             </button>
@@ -489,7 +519,9 @@ export default function Home() {
 
                   <p>
                     {videoData.duration}
-                    {videoData.uploader ? ` • By ${videoData.uploader}` : ''}
+                    {videoData.uploader
+                      ? ` • By ${videoData.uploader}`
+                      : ''}
                   </p>
                 </div>
 
@@ -521,6 +553,7 @@ export default function Home() {
                       size={22}
                       className="shrink-0 text-amber-400"
                     />
+
                     <div>
                       <p className="font-semibold text-white">
                         Original MP4 quality
@@ -543,8 +576,11 @@ export default function Home() {
                       ) : (
                         <Download size={18} />
                       )}
+
                       <span>
-                        {downloading ? 'Preparing MP4...' : 'Download MP4'}
+                        {downloading
+                          ? 'Preparing MP4...'
+                          : 'Download MP4'}
                       </span>
                     </button>
                   </div>
@@ -576,7 +612,9 @@ export default function Home() {
                           type="button"
                           className="relative block w-full group text-left"
                           onClick={() => {
-                            if (videoData.videoId) setIsPlaying(true);
+                            if (videoData.videoId) {
+                              setIsPlaying(true);
+                            }
                           }}
                           aria-label={`Play preview of ${videoData.title}`}
                           disabled={!videoData.videoId}
@@ -607,6 +645,7 @@ export default function Home() {
                         size={22}
                         className="shrink-0 text-amber-400"
                       />
+
                       <div>
                         <h3 className="font-semibold text-white">
                           YouTube preview ready
@@ -628,7 +667,9 @@ export default function Home() {
                       className="gold-btn flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Play size={18} />
-                      <span>{isPlaying ? 'Preview Playing' : 'Play Preview'}</span>
+                      <span>
+                        {isPlaying ? 'Preview Playing' : 'Play Preview'}
+                      </span>
                     </button>
 
                     <a
