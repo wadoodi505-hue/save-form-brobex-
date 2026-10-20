@@ -1,3 +1,4 @@
+
 import { useState, type FormEvent } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -29,8 +30,7 @@ type VideoFormat = {
 };
 
 type VideoData = {
-  kind?: 'youtube' | 'direct-mp4';
-  sourceUrl?: string;
+  kind: 'youtube' | 'direct-mp4';
   title: string;
   thumbnail: string;
   duration: string;
@@ -43,7 +43,11 @@ type VideoData = {
 const faqs = [
   [
     'Can I download any video from any website?',
-    'No. Support depends on the source, its terms, technical access, and whether a permitted integration is available. Direct MP4 downloads are supported when the source allows access. This service does not bypass DRM, login walls, or access restrictions.',
+    'No. Support depends on the source, its terms, technical access, and whether a permitted integration is available. This website supports direct HTTPS MP4 downloads for media you own or are authorized to download. It does not bypass DRM, login walls, or access restrictions.',
+  ],
+  [
+    'Can I download a YouTube video here?',
+    'You can preview supported public YouTube videos using the official embedded player and view their public metadata. This version does not download YouTube videos. Use YouTube’s own download options where available.',
   ],
   [
     'Does submitting a URL guarantee a download?',
@@ -51,13 +55,65 @@ const faqs = [
   ],
   [
     'Is my submitted link private?',
-    'Links are processed securely through backend validation and public endpoints. Avoid submitting private or tokenized URLs.',
+    'Links are processed by the service backend to retrieve supported metadata or validate a media file. Avoid submitting private, confidential, or tokenized URLs.',
   ],
   [
     'Does the website store downloaded videos?',
-    'Direct MP4 files are streamed straight to your browser rather than stored as permanent server libraries.',
+    'Direct MP4 files are streamed through the backend to your browser rather than stored as a permanent server library.',
   ],
 ];
+
+function getYouTubeVideoId(value: string): string | undefined {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+
+    if (host === 'youtu.be') {
+      const id = parsed.pathname.split('/').filter(Boolean)[0];
+      return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : undefined;
+    }
+
+    if (
+      host !== 'youtube.com' &&
+      host !== 'm.youtube.com' &&
+      host !== 'music.youtube.com'
+    ) {
+      return undefined;
+    }
+
+    let id = parsed.searchParams.get('v') || undefined;
+
+    if (!id) {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+
+      if (parts[0] === 'shorts' || parts[0] === 'embed' || parts[0] === 'live') {
+        id = parts[1];
+      }
+    }
+
+    return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getSafeFilename(value: string): string {
+  let name = value;
+
+  try {
+    name = decodeURIComponent(value);
+  } catch {
+    // Keep the original filename if URL encoding is malformed.
+  }
+
+  return (
+    name
+      .replace(/\.mp4$/i, '')
+      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+      .replace(/\s+/g, '_')
+      .slice(0, 120) || 'video'
+  );
+}
 
 export default function Home() {
   const [url, setUrl] = useState('');
@@ -66,11 +122,11 @@ export default function Home() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [videoData, setVideoData] = useState<VideoData | null>(null);
-  const [selectedFormat, setSelectedFormat] = useState('best[ext=mp4]/best');
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Use backend URL from environment or fallback to localhost for development
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8787';
+  const API_BASE = (
+    import.meta.env.VITE_API_URL || 'http://localhost:8787'
+  ).replace(/\/+$/, '');
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -87,48 +143,54 @@ export default function Home() {
       return;
     }
 
-  let parsedUrl: URL | null = null;
+    let parsedUrl: URL;
 
-try {
-  parsedUrl = new URL(value);
-} catch {
-  // The backend will report an invalid URL.
-}
+    try {
+      parsedUrl = new URL(value);
+    } catch {
+      setError('Enter a valid URL, including https://.');
+      return;
+    }
 
-if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
-  if (parsedUrl.protocol !== 'https:') {
-    setError('Direct MP4 downloads require an HTTPS URL.');
-    return;
-  }
+    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+      setError('Only HTTP and HTTPS URLs are supported.');
+      return;
+    }
 
-  const filename =
-    decodeURIComponent(parsedUrl.pathname.split('/').pop() || 'video.mp4')
-      .replace(/\.mp4$/i, '') || 'video';
+    if (parsedUrl.pathname.toLowerCase().endsWith('.mp4')) {
+      if (parsedUrl.protocol !== 'https:') {
+        setError('Direct MP4 downloads require an HTTPS URL.');
+        return;
+      }
 
-  setVideoData({
-    kind: 'direct-mp4',
-    title: filename,
-    thumbnail: '',
-    duration: 'Original MP4 file',
-    uploader: 'Direct media source',
-    originalUrl: parsedUrl.toString(),
-    formats: [
-      {
-        format_id: 'direct-mp4',
-        resolution: 'Original quality',
-        filesize: 'Original file',
-      },
-    ],
-  });
+      const rawFilename = parsedUrl.pathname.split('/').pop() || 'video.mp4';
+      const filename = getSafeFilename(rawFilename);
 
-  setSelectedFormat('direct-mp4');
-  setNotice(
-    'MP4 link ready. Click Download MP4 to validate and download the file.',
-  );
-  return;
-}
+      setVideoData({
+        kind: 'direct-mp4',
+        title: filename,
+        thumbnail: '',
+        duration: 'Original MP4 file',
+        uploader: 'Direct media source',
+        originalUrl: parsedUrl.toString(),
+        formats: [
+          {
+            format_id: 'direct-mp4',
+            resolution: 'Original quality',
+            filesize: 'Original file',
+          },
+        ],
+      });
+
+      
+      setNotice(
+        'MP4 link ready. If you own this media or have permission to use it, select Download MP4 to validate and download the file.',
+      );
+      return;
+    }
+
     setBusy(true);
-    setNotice('Connecting to server backend & fetching video formats...');
+    setNotice('Checking the link and retrieving available public metadata...');
 
     try {
       const response = await fetch(`${API_BASE}/api/info`, {
@@ -137,32 +199,54 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
         body: JSON.stringify({ url: value }),
       });
 
-      const contentType = response.headers.get('content-type');
-      if (!response.ok || !contentType || !contentType.includes('application/json')) {
-        throw new Error('Backend server is starting up or unreachable. Please try again in 10 seconds.');
+      const contentType = response.headers.get('content-type') || '';
+
+      if (!response.ok || !contentType.includes('application/json')) {
+        throw new Error(
+          'The backend could not process this link. Please try again shortly.',
+        );
       }
 
       const data = await response.json();
+      const videoId = getYouTubeVideoId(value);
 
-      setVideoData({
-        title: data.title || 'YouTube Video',
-        thumbnail: data.thumbnail || '',
-        duration: data.duration || 'HD Quality',
-        uploader: data.uploader || 'YouTube Creator',
-        originalUrl: value,
-        formats: data.formats || []
-      });
+      if (videoId) {
+        setVideoData({
+          kind: 'youtube',
+          title: data.title || 'YouTube Video',
+          thumbnail:
+            data.thumbnail ||
+            `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+          duration: data.duration || 'Available on YouTube',
+          uploader: data.uploader || 'YouTube Creator',
+          originalUrl: value,
+          videoId,
+          formats: [],
+        });
 
-      if (data.formats && data.formats.length > 0) {
-        setSelectedFormat(data.formats[0].format_id);
+        setNotice(
+          'YouTube preview ready. Play the preview here or open the video on YouTube. Video downloads are not available through this preview.',
+        );
+      } else {
+        setVideoData({
+          kind: 'youtube',
+          title: data.title || 'Media Preview',
+          thumbnail: data.thumbnail || '',
+          duration: data.duration || 'Duration unavailable',
+          uploader: data.uploader || 'Source information',
+          originalUrl: value,
+          formats: [],
+        });
+
+        setNotice(
+          'Metadata retrieved. A playable preview is available only for supported YouTube links. Direct HTTPS MP4 links can be downloaded separately.',
+        );
       }
-
-      setNotice(data.formats && data.formats.length > 0 ? 'Preview ready. Supported download formats are available.' : 'YouTube preview ready. Play the video here or watch it on YouTube.');
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : 'Failed to fetch video details. Ensure your backend server is running.'
+          : 'Could not retrieve link information. Please try again.',
       );
     } finally {
       setBusy(false);
@@ -170,11 +254,16 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
   }
 
   async function handleDownload() {
-    if (!videoData) return;
+    if (!videoData || videoData.kind !== 'direct-mp4') {
+      setError(
+        'Downloads are currently available for supported direct HTTPS MP4 files only.',
+      );
+      return;
+    }
 
     setDownloading(true);
-    setNotice(`Processing and streaming video stream... Please wait.`);
     setError('');
+    setNotice('Validating the MP4 source and preparing your download...');
 
     try {
       const res = await fetch(`${API_BASE}/api/download`, {
@@ -182,28 +271,58 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: videoData.originalUrl,
-          formatId: selectedFormat
-        })
+          formatId: 'direct-mp4',
+        }),
       });
 
+      const contentType = res.headers.get('content-type') || '';
+
       if (!res.ok) {
+        let message = 'The server could not download this MP4 file.';
+
+        if (contentType.includes('application/json')) {
+          const errData = await res.json().catch(() => ({}));
+          if (typeof errData.error === 'string') {
+            message = errData.error;
+          }
+        }
+
+        throw new Error(message);
+      }
+
+      if (contentType.includes('application/json')) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Download process failed on server.');
+        throw new Error(
+          typeof errData.error === 'string'
+            ? errData.error
+            : 'The server returned a message instead of a video file.',
+        );
       }
 
       const blob = await res.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `${videoData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
 
-      setNotice('Download completed successfully on your device!');
+      if (blob.size === 0) {
+        throw new Error('The downloaded file was empty. Please check the URL.');
+      }
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+
+      anchor.href = downloadUrl;
+      anchor.download = `${getSafeFilename(videoData.title)}.mp4`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+
+      window.setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 1000);
+
+      setNotice('Your MP4 download has been prepared successfully.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Download failed. Please try again.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Download failed. Please check the URL and try again.',
+      );
       setNotice('');
     } finally {
       setDownloading(false);
@@ -219,7 +338,9 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
       setVideoData(null);
       setIsPlaying(false);
     } catch {
-      setError('Clipboard access was blocked. Paste your link into the field instead.');
+      setError(
+        'Clipboard access was blocked. Paste your link into the field instead.',
+      );
     }
   }
 
@@ -234,8 +355,8 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
   return (
     <>
       <Seo
-        title="Save From Brobex â€” Your Media. Your Choice."
-        description="Preview supported media and download accessible MP4 files directly with Save From Brobex."
+        title="Save From Brobex — Your Media. Your Choice."
+        description="Preview supported YouTube videos and download accessible direct HTTPS MP4 files you are authorized to use."
       />
 
       <section className="hero">
@@ -273,8 +394,8 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
           </motion.p>
 
           <p className="hero-copy">
-            Preview supported media or download accessible MP4 videos in your preferred quality.
-            Paste a link to get started.
+            Preview supported YouTube videos or download accessible direct MP4
+            files you are authorized to use. Paste a link to get started.
           </p>
 
           <motion.form
@@ -297,7 +418,7 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
               type="url"
               inputMode="url"
               autoComplete="url"
-              placeholder="Paste a YouTube link or Shorts URL"
+              placeholder="Paste a YouTube link or HTTPS MP4 URL"
               value={url}
               onChange={(event) => {
                 setUrl(event.target.value);
@@ -332,7 +453,7 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
 
             <button className="submit-btn" type="submit" disabled={busy}>
               {busy ? <span className="spinner" /> : <Download size={18} />}
-              <span>{busy ? 'Fetching...' : 'Get Media'}</span>
+              <span>{busy ? 'Checking...' : 'Get Media'}</span>
               <ArrowRight size={16} />
             </button>
           </motion.form>
@@ -354,96 +475,183 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35 }}
-              aria-label="Video preview and download"
+              aria-label="Media preview and available actions"
             >
               <div className="media-result-heading">
                 <div>
-                <div className="section-kicker">
-  {videoData.kind === 'direct-mp4'
-    ? 'DIRECT MP4'
-    : videoData.formats.length > 0
-      ? 'DOWNLOAD AVAILABLE'
-      : 'YOUTUBE PREVIEW'}
-</div>
+                  <div className="section-kicker">
+                    {videoData.kind === 'direct-mp4'
+                      ? 'DIRECT MP4'
+                      : 'YOUTUBE PREVIEW'}
+                  </div>
+
                   <h2>{videoData.title}</h2>
-                  <p>Duration: {videoData.duration} {videoData.uploader ? `â€¢ By ${videoData.uploader}` : ''}</p>
+
+                  <p>
+                    {videoData.duration}
+                    {videoData.uploader ? ` • By ${videoData.uploader}` : ''}
+                  </p>
                 </div>
 
-               <span className="source-icon">
-  {videoData.kind === 'direct-mp4' ? <FileVideo /> : <Youtube />}
-</span>
-              </div>
-{videoData.kind === 'direct-mp4' && (
-  <div className="my-4 overflow-hidden rounded-xl border border-slate-700">
-    <video
-      src={videoData.originalUrl}
-      controls
-      preload="metadata"
-      className="w-full max-h-[420px] bg-black"
-      aria-label={`Preview of ${videoData.title}`}
-    >
-      Your browser does not support HTML video playback.
-    </video>
-  </div>
-)}
-              {videoData.thumbnail && (
-                <div className="my-4 overflow-hidden rounded-xl border border-slate-700 relative">
-                  {isPlaying ? (
-                    <div className="w-full h-64 bg-black flex items-center justify-center">
-                      <iframe
-                        src={`https://www.youtube.com/embed/${videoData.originalUrl.match(/(?:v=|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1] || ''}?autoplay=1`}
-                        title={videoData.title}
-                        className="w-full h-64 border-0"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
-                    </div>
+                <span className="source-icon">
+                  {videoData.kind === 'direct-mp4' ? (
+                    <FileVideo />
                   ) : (
-                    <div className="relative group cursor-pointer" onClick={() => setIsPlaying(true)}>
-                      <img
-                        src={videoData.thumbnail}
-                        alt={videoData.title}
-                        className="w-full h-64 object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition-all">
-                        <div className="w-14 h-14 rounded-full bg-amber-500 flex items-center justify-center text-slate-950 shadow-lg">
-                          <Play size={24} className="ml-1 fill-slate-950" />
+                    <Youtube />
+                  )}
+                </span>
+              </div>
+
+              {videoData.kind === 'direct-mp4' && (
+                <>
+                  <div className="my-4 overflow-hidden rounded-xl border border-slate-700">
+                    <video
+                      src={videoData.originalUrl}
+                      controls
+                      preload="metadata"
+                      className="w-full max-h-[420px] bg-black"
+                      aria-label={`Preview of ${videoData.title}`}
+                    >
+                      Your browser does not support HTML video playback.
+                    </video>
+                  </div>
+
+                  <div className="flex items-center gap-3 my-4 rounded-xl border border-slate-700 bg-slate-950/50 p-4">
+                    <FileVideo
+                      size={22}
+                      className="shrink-0 text-amber-400"
+                    />
+                    <div>
+                      <p className="font-semibold text-white">
+                        Original MP4 quality
+                      </p>
+                      <p className="text-sm text-slate-400">
+                        The file is provided in its original available quality.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="media-result-actions mt-4 flex items-center justify-between gap-4">
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      disabled={downloading}
+                      className="gold-btn flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {downloading ? (
+                        <span className="spinner" />
+                      ) : (
+                        <Download size={18} />
+                      )}
+                      <span>
+                        {downloading ? 'Preparing MP4...' : 'Download MP4'}
+                      </span>
+                    </button>
+                  </div>
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Only download content you own or have permission to use.
+                    The server must be able to access the supplied file.
+                  </p>
+                </>
+              )}
+
+              {videoData.kind === 'youtube' && (
+                <>
+                  {videoData.thumbnail && (
+                    <div className="my-4 overflow-hidden rounded-xl border border-slate-700 relative">
+                      {isPlaying && videoData.videoId ? (
+                        <div className="w-full aspect-video bg-black">
+                          <iframe
+                            src={`https://www.youtube-nocookie.com/embed/${videoData.videoId}?autoplay=1`}
+                            title={videoData.title}
+                            className="w-full h-full border-0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            referrerPolicy="strict-origin-when-cross-origin"
+                            allowFullScreen
+                          />
                         </div>
-                      </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="relative block w-full group text-left"
+                          onClick={() => {
+                            if (videoData.videoId) setIsPlaying(true);
+                          }}
+                          aria-label={`Play preview of ${videoData.title}`}
+                          disabled={!videoData.videoId}
+                        >
+                          <img
+                            src={videoData.thumbnail}
+                            alt={`Thumbnail for ${videoData.title}`}
+                            className="w-full h-64 object-cover"
+                            loading="lazy"
+                          />
+
+                          <span className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition-all">
+                            <span className="w-14 h-14 rounded-full bg-amber-500 flex items-center justify-center text-slate-950 shadow-lg">
+                              <Play
+                                size={24}
+                                className="ml-1 fill-slate-950"
+                              />
+                            </span>
+                          </span>
+                        </button>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
 
-              {videoData.formats.length > 0 && (
-                <div className="flex flex-col gap-3 my-4">
-                <label className="text-sm font-medium text-slate-300">Select Video Quality:</label>
-                <select
-                  value={selectedFormat}
-                  onChange={(e) => setSelectedFormat(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-indigo-500"
-                >
-                  {videoData.formats.map((f, idx) => (
-                    <option key={idx} value={f.format_id}>
-                      {f.resolution} {f.fps ? `(${f.fps}fps)` : ''} â€” {f.filesize}
-                    </option>
-                  ))}
-                </select>
-                </div>
-              )}
+                  <div className="my-4 rounded-xl border border-slate-700 bg-slate-950/50 p-4">
+                    <div className="flex items-start gap-3">
+                      <ShieldCheck
+                        size={22}
+                        className="shrink-0 text-amber-400"
+                      />
+                      <div>
+                        <h3 className="font-semibold text-white">
+                          YouTube preview ready
+                        </h3>
+                        <p className="mt-1 text-sm text-slate-300">
+                          Play the embedded video here or open it on YouTube.
+                          This preview does not provide a YouTube video
+                          download.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-              {videoData.formats.length > 0 && (
-              <div className="media-result-actions mt-4 flex items-center justify-between gap-4">
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  disabled={downloading}
-                  className="gold-btn flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold cursor-pointer"
-                >
-                  {downloading ? <span className="spinner" /> : <Download size={18} />}
-                  <span>{downloading ? 'Downloading MP4...' : 'Download MP4'}</span>
-                </button>
-              </div>
+                  <div className="media-result-actions mt-4 flex flex-col sm:flex-row items-stretch gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsPlaying(true)}
+                      disabled={!videoData.videoId || isPlaying}
+                      className="gold-btn flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Play size={18} />
+                      <span>{isPlaying ? 'Preview Playing' : 'Play Preview'}</span>
+                    </button>
+
+                    <a
+                      href={
+                        videoData.videoId
+                          ? `https://www.youtube.com/watch?v=${videoData.videoId}`
+                          : videoData.originalUrl
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-slate-600 px-4 py-3 font-semibold text-white transition hover:border-amber-400 hover:text-amber-300"
+                    >
+                      <Youtube size={18} />
+                      <span>Watch on YouTube</span>
+                      <ArrowUpRight size={16} />
+                    </a>
+                  </div>
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    YouTube playback and availability are controlled by
+                    YouTube. Use its own download features where available.
+                  </p>
+                </>
               )}
             </motion.section>
           )}
@@ -456,7 +664,7 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
               <LockKeyhole size={15} /> Safety-minded design
             </span>
             <span>
-              <Check size={15} /> No fabricated results
+              <Check size={15} /> Honest results
             </span>
           </div>
 
@@ -469,7 +677,7 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
         <div className="hero-bottom">
           <span>BUILT FOR CLARITY</span>
           <span className="hero-bottom-line" />
-          <span>01 â€” 04</span>
+          <span>01 — 04</span>
         </div>
       </section>
 
@@ -483,7 +691,7 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
             </span>
             <span>
               <b>YouTube</b>
-              <small>Preview & Download</small>
+              <small>Preview only</small>
             </span>
           </div>
 
@@ -518,8 +726,9 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
           </div>
 
           <p>
-            YouTube links provide an embedded preview and public video metadata.
-            Direct HTTPS MP4 files can be downloaded when you own the media or have permission to use it.
+            YouTube links provide public metadata and an embedded preview.
+            Direct HTTPS MP4 files can be downloaded when you own the media or
+            have permission to use it and the source allows access.
           </p>
         </div>
       </section>
@@ -534,8 +743,8 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
           </div>
 
           <p>
-            Clear feedback at every step, so you know what the service canâ€”and
-            cannotâ€”do.
+            Clear feedback at every step, so you know what the service can—and
+            cannot—do.
           </p>
         </div>
 
@@ -562,7 +771,8 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
             </div>
             <h3>Validate the source</h3>
             <p>
-              The server checks the URL and reports available qualities and formats for download.
+              The server retrieves supported public metadata or checks whether
+              a direct MP4 file is accessible for download.
             </p>
             <span className="step-arrow">
               <ArrowRight />
@@ -574,9 +784,10 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
             <div className="step-icon">
               <FileVideo />
             </div>
-            <h3>Download your video</h3>
+            <h3>Preview or download</h3>
             <p>
-              Choose your preferred resolution and download your MP4 file securely.
+              Preview supported YouTube videos or download an authorized direct
+              MP4 file in its original available quality.
             </p>
             <span className="step-arrow">
               <ArrowRight />
@@ -682,7 +893,7 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
           with a <span>conversation.</span>
         </h2>
         <p>
-          Need a polished digital experience for your business? Letâ€™s talk
+          Need a polished digital experience for your business? Let’s talk
           about what you want to build.
         </p>
         <Link to="/contact" className="gold-btn">
@@ -694,7 +905,7 @@ if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
           rel="noopener noreferrer"
           className="cta-secondary"
         >
-          Explore developer portfolio â†—
+          Explore developer portfolio →
         </a>
       </section>
     </>
