@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Make the python command available to npm install scripts
+RUN ln -sf /usr/bin/python3 /usr/local/bin/python \
+    && python --version
+
 
 # Install yt-dlp at a known executable path
 RUN curl -fL --retry 3 \
