@@ -2,12 +2,15 @@
 FROM node:22-bookworm-slim
 
 # Install required system tools
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
+    python-is-python3 \
     ffmpeg \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
 
 # Install yt-dlp at a known executable path
 RUN curl -fL --retry 3 \

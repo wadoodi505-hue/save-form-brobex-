@@ -1,4 +1,4 @@
-﻿import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowRight,
@@ -29,12 +29,15 @@ type VideoFormat = {
 };
 
 type VideoData = {
+  kind?: 'youtube' | 'direct-mp4';
+  sourceUrl?: string;
   title: string;
   thumbnail: string;
   duration: string;
   uploader?: string;
   formats: VideoFormat[];
   originalUrl: string;
+  videoId?: string;
 };
 
 const faqs = [
@@ -84,16 +87,46 @@ export default function Home() {
       return;
     }
 
-    if (/\.mp4$/i.test(value)) {
-      if (!value.startsWith('https://')) {
-        setError('Direct MP4 downloads require an HTTPS URL.');
-        return;
-      }
-      window.location.assign(value);
-      setNotice('Your MP4 download is starting.');
-      return;
-    }
+  let parsedUrl: URL | null = null;
 
+try {
+  parsedUrl = new URL(value);
+} catch {
+  // The backend will report an invalid URL.
+}
+
+if (parsedUrl?.pathname.toLowerCase().endsWith('.mp4')) {
+  if (parsedUrl.protocol !== 'https:') {
+    setError('Direct MP4 downloads require an HTTPS URL.');
+    return;
+  }
+
+  const filename =
+    decodeURIComponent(parsedUrl.pathname.split('/').pop() || 'video.mp4')
+      .replace(/\.mp4$/i, '') || 'video';
+
+  setVideoData({
+    kind: 'direct-mp4',
+    title: filename,
+    thumbnail: '',
+    duration: 'Original MP4 file',
+    uploader: 'Direct media source',
+    originalUrl: parsedUrl.toString(),
+    formats: [
+      {
+        format_id: 'direct-mp4',
+        resolution: 'Original quality',
+        filesize: 'Original file',
+      },
+    ],
+  });
+
+  setSelectedFormat('direct-mp4');
+  setNotice(
+    'MP4 link ready. Click Download MP4 to validate and download the file.',
+  );
+  return;
+}
     setBusy(true);
     setNotice('Connecting to server backend & fetching video formats...');
 
@@ -124,7 +157,7 @@ export default function Home() {
         setSelectedFormat(data.formats[0].format_id);
       }
 
-      setNotice('Video preview ready! Choose your quality and download.');
+      setNotice(data.formats && data.formats.length > 0 ? 'Preview ready. Supported download formats are available.' : 'YouTube preview ready. Play the video here or watch it on YouTube.');
     } catch (err) {
       setError(
         err instanceof Error
@@ -325,16 +358,34 @@ export default function Home() {
             >
               <div className="media-result-heading">
                 <div>
-                  <div className="section-kicker">READY TO DOWNLOAD</div>
+                <div className="section-kicker">
+  {videoData.kind === 'direct-mp4'
+    ? 'DIRECT MP4'
+    : videoData.formats.length > 0
+      ? 'DOWNLOAD AVAILABLE'
+      : 'YOUTUBE PREVIEW'}
+</div>
                   <h2>{videoData.title}</h2>
                   <p>Duration: {videoData.duration} {videoData.uploader ? `â€¢ By ${videoData.uploader}` : ''}</p>
                 </div>
 
-                <span className="source-icon">
-                  <Youtube />
-                </span>
+               <span className="source-icon">
+  {videoData.kind === 'direct-mp4' ? <FileVideo /> : <Youtube />}
+</span>
               </div>
-
+{videoData.kind === 'direct-mp4' && (
+  <div className="my-4 overflow-hidden rounded-xl border border-slate-700">
+    <video
+      src={videoData.originalUrl}
+      controls
+      preload="metadata"
+      className="w-full max-h-[420px] bg-black"
+      aria-label={`Preview of ${videoData.title}`}
+    >
+      Your browser does not support HTML video playback.
+    </video>
+  </div>
+)}
               {videoData.thumbnail && (
                 <div className="my-4 overflow-hidden rounded-xl border border-slate-700 relative">
                   {isPlaying ? (
@@ -364,7 +415,8 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="flex flex-col gap-3 my-4">
+              {videoData.formats.length > 0 && (
+                <div className="flex flex-col gap-3 my-4">
                 <label className="text-sm font-medium text-slate-300">Select Video Quality:</label>
                 <select
                   value={selectedFormat}
@@ -377,8 +429,10 @@ export default function Home() {
                     </option>
                   ))}
                 </select>
-              </div>
+                </div>
+              )}
 
+              {videoData.formats.length > 0 && (
               <div className="media-result-actions mt-4 flex items-center justify-between gap-4">
                 <button
                   type="button"
@@ -390,6 +444,7 @@ export default function Home() {
                   <span>{downloading ? 'Downloading MP4...' : 'Download MP4'}</span>
                 </button>
               </div>
+              )}
             </motion.section>
           )}
 
@@ -463,8 +518,8 @@ export default function Home() {
           </div>
 
           <p>
-            YouTube previews and format selection link directly to server-side yt-dlp processing. Direct HTTPS
-            MP4 file URLs can be downloaded when the source permits access.
+            YouTube links provide an embedded preview and public video metadata.
+            Direct HTTPS MP4 files can be downloaded when you own the media or have permission to use it.
           </p>
         </div>
       </section>
