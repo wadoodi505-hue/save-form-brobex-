@@ -141,8 +141,9 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(false);
 
   const API_BASE = (
-    import.meta.env.VITE_API_URL || 'http://localhost:8787'
-  ).replace(/\/+$/, '');
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:8787' : '')
+).replace(/\/+$/, '');
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -686,6 +687,15 @@ export default function Home() {
                       <span>Watch on YouTube</span>
                       <ArrowUpRight size={16} />
                     </a>
+                    <button
+  type="button"
+  disabled
+  title="YouTube downloads are not supported"
+  className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-slate-700 px-4 py-3 font-semibold text-slate-400 opacity-80 cursor-not-allowed"
+>
+  <Download size={18} />
+  <span>Download MP4 — Unavailable</span>
+</button>
                   </div>
 
                   <p className="mt-3 text-xs text-slate-400">
